@@ -1,0 +1,71 @@
+# Environnement virtuel
+ohada-env/
+venv/
+env/
+.env
+
+# Fichiers Python compilés
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Données et fichiers générés
+data/
+*.log
+logs/
+temp/
+tmp/
+
+# Base de données vectorielle
+vector_db/
+
+# Fichiers de configuration sensibles
+config_local.yaml
+*_config_local.yaml
+*.env
+
+# Fichiers spécifiques à l'IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Fichiers de dépendances
+node_modules/
+package-lock.json
+yarn.lock
+
+# Fichiers de distribution
+/dist
+/build
+
+# Fichiers de test et couverture
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Documentation générée
+/docs/_build/
+/site
+
+# Autre
+.ipynb_checkpoints
+.mypy_cache/
