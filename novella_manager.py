@@ -534,6 +534,3 @@ class NovellaForgeManager:
             "summary": new_summary,
             "was_complete_rewrite": complete_rewrite
         }
-
-
-

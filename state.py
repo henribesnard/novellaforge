@@ -6,7 +6,7 @@ from typing import Dict, List, Any, Tuple
 class NovellaState:
     """Classe pour la gestion de l'état de la novella"""
     
-    def __init__(self):
+    def __init__(self, project_id=None):
         # Informations de base
         self.title = ""
         self.concept = {}
@@ -27,17 +27,27 @@ class NovellaState:
         self.chapter_metadata = []  # Métadonnées pour chaque chapitre
         self.contextual_additions = []  # Ajouts contextuels par chapitre
         
-        # Créer le dossier data s'il n'existe pas
+        # ID du projet
+        self.project_id = project_id or f"project_{int(time.time())}"
+        
+        # Créer les dossiers nécessaires
         os.makedirs("data", exist_ok=True)
+        os.makedirs("data/projects", exist_ok=True)
     
-    def save_to_file(self, filename="data/novella_state.json"):
+    def save_to_file(self, filename=None):
         """Sauvegarde l'état actuel dans un fichier JSON"""
+        if not filename:
+            filename = f"data/projects/{self.project_id}.json"
+        
         with open(filename, 'w', encoding='utf-8') as f:
             json.dump(self.__dict__, f, ensure_ascii=False, indent=4)
         return filename
     
-    def load_from_file(self, filename="data/novella_state.json"):
+    def load_from_file(self, filename=None):
         """Charge l'état depuis un fichier JSON"""
+        if not filename:
+            filename = f"data/projects/{self.project_id}.json"
+        
         try:
             with open(filename, 'r', encoding='utf-8') as f:
                 data = json.load(f)
@@ -57,7 +67,8 @@ class NovellaState:
                     self.contextual_additions = []
                 
             return True
-        except FileNotFoundError:
+        except (FileNotFoundError, json.JSONDecodeError) as e:
+            print(f"Erreur lors du chargement: {e}")
             return False
     
     def add_chapter(self, chapter_content, chapter_summary, metadata=None):
@@ -160,9 +171,6 @@ class NovellaState:
         }
         
         self.timeline.append(event)
-        # Trier la timeline par ordre chronologique (si possible)
-        # Cette logique pourrait être complexifiée pour gérer différents formats de date
-        
         self.save_to_file()
         return event
     
@@ -227,8 +235,11 @@ class NovellaState:
             result += f"## Chapitre {chapter['number']}\n\n{chapter['content']}\n\n"
         return result
     
-    def export_as_markdown(self, filename="data/novella.md"):
+    def export_as_markdown(self, filename=None):
         """Exporte la novella complète en fichier Markdown"""
+        if not filename:
+            filename = f"data/{self.project_id}_{self.title.replace(' ', '_')}.md"
+        
         with open(filename, 'w', encoding='utf-8') as f:
             f.write(self.get_all_chapters_as_markdown())
         return filename
