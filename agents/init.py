@@ -9,6 +9,7 @@ from .continuity_guardian import ContinuityGuardian
 from .memory_compiler import MemoryCompiler
 from .narrative_enhancer import NarrativeEnhancer
 from .reader_experience_manager import ReaderExperienceManager
+from .temporal_guardian import TemporalGuardian
 
 # Fonction pour créer tous les agents
 def create_all_agents(llm):
@@ -23,8 +24,10 @@ def create_all_agents(llm):
         "continuity_guardian": ContinuityGuardian(llm).create(),
         "memory_compiler": MemoryCompiler(llm).create(),
         "narrative_enhancer": NarrativeEnhancer(llm).create(),
-        "reader_experience_manager": ReaderExperienceManager(llm).create()
+        "reader_experience_manager": ReaderExperienceManager(llm).create(),
+        "temporal_guardian": TemporalGuardian(llm).create()
     }
+
 def create_agent_with_fallback(agent_class, llm, role, goal, backstory):
     """Crée un agent avec gestion des erreurs potentielles"""
     try:
