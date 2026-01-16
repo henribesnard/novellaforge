@@ -1,0 +1,21 @@
+# Dépendances supplémentaires pour les nouvelles fonctionnalités
+
+# HTTP client pour les appels API (DeepSeek)
+httpx==0.27.0
+
+# Traitement de documents Word
+python-docx==1.1.0
+
+# Traitement de fichiers PDF
+PyPDF2==3.0.1
+
+# Alternative pour PDF (optionnel, plus performant)
+# pypdf==4.0.1
+
+# Pour le traitement de texte avancé (optionnel)
+# python-magic==0.4.27
+# chardet==5.2.0
+
+# WebSocket support (si vous voulez ajouter le WebSocket plus tard)
+# python-socketio==5.11.0
+# websockets==12.0

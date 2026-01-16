@@ -1,0 +1,285 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: novellaforge-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-novellaforge}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_this_password}
+      POSTGRES_DB: ${POSTGRES_DB:-novellaforge_db}
+    ports:
+      - "5436:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - novellaforge-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-novellaforge}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache & Queue
+  redis:
+    image: redis:7-alpine
+    container_name: novellaforge-redis
+    restart: unless-stopped
+    ports:
+      - "6382:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - novellaforge-network
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Qdrant Vector Database
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: novellaforge-qdrant
+    restart: unless-stopped
+    ports:
+      - "6335:6333"
+      - "6336:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - novellaforge-network
+
+  # Neo4j Knowledge Graph
+  neo4j:
+    image: neo4j:5.26.0
+    container_name: novellaforge-neo4j
+    restart: unless-stopped
+    environment:
+      NEO4J_AUTH: ${NEO4J_AUTH:-neo4j/change_this_password}
+    ports:
+      - "7476:7474"
+      - "7689:7687"
+    volumes:
+      - neo4j_data:/data
+    networks:
+      - novellaforge-network
+
+  # ChromaDB Vector Memory
+  chroma:
+    image: chromadb/chroma:0.5.5
+    container_name: novellaforge-chroma
+    restart: unless-stopped
+    ports:
+      - "8006:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+    networks:
+      - novellaforge-network
+
+  # Backend API (FastAPI)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: novellaforge-backend
+    restart: unless-stopped
+    ports:
+      - "8002:8000"
+    environment:
+      # Database
+      POSTGRES_USER: ${POSTGRES_USER:-novellaforge}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_this_password}
+      POSTGRES_DB: ${POSTGRES_DB:-novellaforge_db}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-novellaforge}:${POSTGRES_PASSWORD:-change_this_password}@postgres:5432/${POSTGRES_DB:-novellaforge_db}
+      # Redis
+      REDIS_URL: redis://redis:6379/0
+      # Qdrant
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_COLLECTION_NAME: ${QDRANT_COLLECTION_NAME:-novellaforge_documents}
+      # Neo4j
+      NEO4J_URI: ${NEO4J_URI:-bolt://neo4j:7687}
+      NEO4J_USER: ${NEO4J_USER:-neo4j}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-change_this_password}
+      NEO4J_DATABASE: ${NEO4J_DATABASE:-neo4j}
+      # Chroma
+      CHROMA_HOST: ${CHROMA_HOST:-chroma}
+      CHROMA_PORT: ${CHROMA_PORT:-8000}
+      CHROMA_PERSIST_DIR: ${CHROMA_PERSIST_DIR:-/app/chromadb}
+      CHROMA_COLLECTION_PREFIX: ${CHROMA_COLLECTION_PREFIX:-novellaforge}
+      # DeepSeek API
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      # App Settings
+      APP_ENV: ${APP_ENV:-development}
+      DEBUG: ${DEBUG:-true}
+      SECRET_KEY: ${SECRET_KEY}
+      CHAT_MAX_TOKENS: ${CHAT_MAX_TOKENS:-8000}
+      CHAPTER_MIN_WORDS: ${CHAPTER_MIN_WORDS:-1200}
+      CHAPTER_MAX_WORDS: ${CHAPTER_MAX_WORDS:-2000}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3020,http://localhost}
+    volumes:
+      - ./backend:/app
+      - backend_uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      neo4j:
+        condition: service_started
+      chroma:
+        condition: service_started
+    networks:
+      - novellaforge-network
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+  # Celery Worker
+  celery-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: novellaforge-celery-worker
+    restart: unless-stopped
+    environment:
+      # Database
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-novellaforge}:${POSTGRES_PASSWORD:-change_this_password}@postgres:5432/${POSTGRES_DB:-novellaforge_db}
+      # Redis
+      REDIS_URL: redis://redis:6379/0
+      # Qdrant
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_COLLECTION_NAME: ${QDRANT_COLLECTION_NAME:-novellaforge_documents}
+      # Neo4j
+      NEO4J_URI: ${NEO4J_URI:-bolt://neo4j:7687}
+      NEO4J_USER: ${NEO4J_USER:-neo4j}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-change_this_password}
+      NEO4J_DATABASE: ${NEO4J_DATABASE:-neo4j}
+      # Chroma
+      CHROMA_HOST: ${CHROMA_HOST:-chroma}
+      CHROMA_PORT: ${CHROMA_PORT:-8000}
+      CHROMA_PERSIST_DIR: ${CHROMA_PERSIST_DIR:-/app/chromadb}
+      CHROMA_COLLECTION_PREFIX: ${CHROMA_COLLECTION_PREFIX:-novellaforge}
+      # DeepSeek API
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      # App Settings
+      APP_ENV: ${APP_ENV:-development}
+      SECRET_KEY: ${SECRET_KEY}
+      CHAT_MAX_TOKENS: ${CHAT_MAX_TOKENS:-8000}
+      CHAPTER_MIN_WORDS: ${CHAPTER_MIN_WORDS:-1200}
+      CHAPTER_MAX_WORDS: ${CHAPTER_MAX_WORDS:-2000}
+    volumes:
+      - ./backend:/app
+      - backend_uploads:/app/uploads
+    depends_on:
+      - redis
+      - postgres
+      - backend
+    networks:
+      - novellaforge-network
+    command: celery -A app.core.celery_app worker --loglevel=info
+
+  # Celery Beat (Scheduler)
+  celery-beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: novellaforge-celery-beat
+    restart: unless-stopped
+    environment:
+      # Database
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-novellaforge}:${POSTGRES_PASSWORD:-change_this_password}@postgres:5432/${POSTGRES_DB:-novellaforge_db}
+      # Redis
+      REDIS_URL: redis://redis:6379/0
+      # Qdrant
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_COLLECTION_NAME: ${QDRANT_COLLECTION_NAME:-novellaforge_documents}
+      # Neo4j
+      NEO4J_URI: ${NEO4J_URI:-bolt://neo4j:7687}
+      NEO4J_USER: ${NEO4J_USER:-neo4j}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-change_this_password}
+      NEO4J_DATABASE: ${NEO4J_DATABASE:-neo4j}
+      # Chroma
+      CHROMA_HOST: ${CHROMA_HOST:-chroma}
+      CHROMA_PORT: ${CHROMA_PORT:-8000}
+      CHROMA_PERSIST_DIR: ${CHROMA_PERSIST_DIR:-/app/chromadb}
+      CHROMA_COLLECTION_PREFIX: ${CHROMA_COLLECTION_PREFIX:-novellaforge}
+      # DeepSeek API
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      # App Settings
+      APP_ENV: ${APP_ENV:-development}
+      SECRET_KEY: ${SECRET_KEY}
+      CHAT_MAX_TOKENS: ${CHAT_MAX_TOKENS:-8000}
+      CHAPTER_MIN_WORDS: ${CHAPTER_MIN_WORDS:-1200}
+      CHAPTER_MAX_WORDS: ${CHAPTER_MAX_WORDS:-2000}
+    volumes:
+      - ./backend:/app
+    depends_on:
+      - redis
+      - postgres
+      - backend
+    networks:
+      - novellaforge-network
+    command: celery -A app.core.celery_app beat --loglevel=info
+
+  # Frontend (Next.js)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: development
+    container_name: novellaforge-frontend
+    restart: unless-stopped
+    ports:
+      - "3020:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8002/api/v1
+      NEXT_PUBLIC_WS_URL: ws://localhost:8002/ws
+    volumes:
+      # Temporarily disabled to avoid I/O errors on Windows
+      # - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      - backend
+    networks:
+      - novellaforge-network
+    command: npm run dev
+
+  # Nginx Reverse Proxy (optional for production)
+  nginx:
+    image: nginx:alpine
+    container_name: novellaforge-nginx
+    restart: unless-stopped
+    ports:
+      - "8085:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - novellaforge-network
+    profiles:
+      - production
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  qdrant_data:
+    driver: local
+  neo4j_data:
+    driver: local
+  chroma_data:
+    driver: local
+  backend_uploads:
+    driver: local
+
+networks:
+  novellaforge-network:
+    driver: bridge
