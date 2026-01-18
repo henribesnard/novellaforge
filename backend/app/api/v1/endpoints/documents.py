@@ -14,6 +14,7 @@ from uuid import UUID
 from app.db.session import get_db
 from app.models.user import User
 from app.models.document import Document, DocumentType
+from app.models.project import Project
 from app.schemas.document import (
     DocumentCreate,
     DocumentUpdate,
@@ -462,8 +463,30 @@ async def download_document(
             detail="Document not found",
         )
 
-    title = document.title or "document"
-    filename = f"{_safe_filename(title, 'document')}.md"
+    project_title = None
+    project_result = await db.execute(
+        select(Project).where(
+            Project.id == document.project_id,
+            Project.owner_id == current_user.id,
+        )
+    )
+    project = project_result.scalar_one_or_none()
+    if project and project.title:
+        project_title = project.title
+
+    metadata = document.document_metadata if isinstance(document.document_metadata, dict) else {}
+    raw_index = metadata.get("chapter_index")
+    try:
+        chapter_index = int(raw_index)
+    except (TypeError, ValueError):
+        chapter_index = (document.order_index + 1) if document.order_index is not None else None
+
+    if document.document_type == DocumentType.CHAPTER and project_title and chapter_index:
+        safe_project = _safe_filename(project_title, "project")
+        filename = f"{safe_project}_chapitre_{chapter_index}.md"
+    else:
+        title = document.title or "document"
+        filename = f"{_safe_filename(title, 'document')}.md"
     content_parts = []
     if document.title:
         content_parts.append(f"# {document.title}")

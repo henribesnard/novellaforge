@@ -4,12 +4,14 @@
 
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { getAuthToken, removeAuthToken } from '@/lib/api'
 import {
   acceptPlan,
   deleteProject,
+  downloadDocument,
+  downloadProject,
   generateChapter,
   generatePlan,
   generateSynopsis,
@@ -84,6 +86,32 @@ const formatConceptStatus = (status?: string) => {
   return status
 }
 
+const ChevronIcon = ({ expanded }: { expanded: boolean }) => (
+  <svg
+    aria-hidden="true"
+    className={`h-4 w-4 text-ink/50 transition-transform ${expanded ? 'rotate-180' : ''}`}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M6 9l6 6 6-6" />
+  </svg>
+)
+
+const triggerDownload = (blob: Blob, filename: string) => {
+  const url = window.URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  window.URL.revokeObjectURL(url)
+}
+
 function ProjectCard({ project, onReload, onOpenProject, onDeleteRequest }: ProjectCardProps) {
   const metadata = (project.metadata as Record<string, any>) || {}
   const conceptEntry = metadata.concept as Record<string, any> | undefined
@@ -108,6 +136,9 @@ function ProjectCard({ project, onReload, onOpenProject, onDeleteRequest }: Proj
   const [planLoading, setPlanLoading] = useState(false)
   const [chapterGenerateLoading, setChapterGenerateLoading] = useState(false)
   const [chapterViewLoading, setChapterViewLoading] = useState(false)
+  const [projectDownloadLoading, setProjectDownloadLoading] = useState(false)
+  const [chapterDownloadLoading, setChapterDownloadLoading] = useState(false)
+  const [isCollapsed, setIsCollapsed] = useState(true)
   const [actionError, setActionError] = useState('')
   const [chapterIndex, setChapterIndex] = useState<string>('')
   const [chapterPreview, setChapterPreview] = useState<ChapterGenerationResponse | null>(null)
@@ -166,6 +197,8 @@ function ProjectCard({ project, onReload, onOpenProject, onDeleteRequest }: Proj
     setShowSynopsis(Boolean(initialSynopsisText))
     setActionError('')
     setDocuments([])
+    setProjectDownloadLoading(false)
+    setChapterDownloadLoading(false)
     setSynopsisText(initialSynopsisText)
     setSynopsisFetchAttempted(false)
     setSynopsisStatus(synopsisEntry?.status || 'draft')
@@ -249,6 +282,37 @@ function ProjectCard({ project, onReload, onOpenProject, onDeleteRequest }: Proj
       setActionError(error?.message || 'Erreur lors de la generation du plan.')
     } finally {
       setPlanLoading(false)
+    }
+  }
+
+  const toggleCollapsed = () => {
+    setIsCollapsed((prev) => !prev)
+  }
+
+  const handleCollapseKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      toggleCollapsed()
+    }
+  }
+
+  const handleTitleKeyDown = (event: KeyboardEvent<HTMLHeadingElement>) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      toggleCollapsed()
+    }
+  }
+
+  const handleDownloadProject = async () => {
+    try {
+      setProjectDownloadLoading(true)
+      setActionError('')
+      const { blob, filename } = await downloadProject(project.id)
+      triggerDownload(blob, filename)
+    } catch (error: any) {
+      setActionError(error?.message || 'Erreur lors du telechargement du projet.')
+    } finally {
+      setProjectDownloadLoading(false)
     }
   }
 
@@ -392,6 +456,23 @@ function ProjectCard({ project, onReload, onOpenProject, onDeleteRequest }: Proj
     }
   }
 
+  const handleDownloadChapter = async () => {
+    if (!selectedChapterDoc?.id) {
+      setActionError('Choisissez un chapitre a telecharger.')
+      return
+    }
+    try {
+      setChapterDownloadLoading(true)
+      setActionError('')
+      const { blob, filename } = await downloadDocument(selectedChapterDoc.id)
+      triggerDownload(blob, filename)
+    } catch (error: any) {
+      setActionError(error?.message || 'Erreur lors du telechargement du chapitre.')
+    } finally {
+      setChapterDownloadLoading(false)
+    }
+  }
+
   const handleApproveChapter = async () => {
     const chapterNumber = Number(chapterIndex)
     if (!chapterNumber) {
@@ -426,12 +507,44 @@ function ProjectCard({ project, onReload, onOpenProject, onDeleteRequest }: Proj
   )?.status?.toLowerCase()
   const isChapterApproved = selectedChapterStatus === 'approved' || planChapterStatus === 'approved'
 
+  if (isCollapsed) {
+    return (
+      <Card
+        variant="elevated"
+        hoverable
+        role="button"
+        tabIndex={0}
+        aria-expanded="false"
+        onClick={toggleCollapsed}
+        onKeyDown={handleCollapseKeyDown}
+        className="focus-visible:ring-2 focus-visible:ring-brand-500/40"
+      >
+        <CardHeader className="py-5">
+          <div className="flex items-center justify-between gap-3">
+            <CardTitle className="text-xl text-ink">{project.title}</CardTitle>
+            <ChevronIcon expanded={false} />
+          </div>
+        </CardHeader>
+      </Card>
+    )
+  }
+
   return (
     <Card variant="elevated">
       <CardHeader>
         <div className="flex items-start justify-between gap-4">
           <div className="flex-1">
-            <CardTitle className="text-xl">{project.title}</CardTitle>
+            <CardTitle
+              className="text-xl cursor-pointer rounded-lg px-1 -mx-1 focus-visible:ring-2 focus-visible:ring-brand-500/40 inline-flex items-center gap-2"
+              role="button"
+              tabIndex={0}
+              aria-expanded="true"
+              onClick={toggleCollapsed}
+              onKeyDown={handleTitleKeyDown}
+            >
+              {project.title}
+              <ChevronIcon expanded />
+            </CardTitle>
             {project.description && (
               <CardDescription className="mt-2 line-clamp-2">
                 {project.description}
@@ -474,6 +587,14 @@ function ProjectCard({ project, onReload, onOpenProject, onDeleteRequest }: Proj
               onClick={() => onOpenProject(project.id)}
             >
               Consulter le concept
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleDownloadProject}
+              isLoading={projectDownloadLoading}
+            >
+              Telecharger le projet
             </Button>
           </div>
         </div>
@@ -626,6 +747,14 @@ function ProjectCard({ project, onReload, onOpenProject, onDeleteRequest }: Proj
                 disabled={!planPayload || (!selectedChapterDoc && chapterOptions.length === 0)}
               >
                 {showChapter ? 'Masquer le chapitre' : 'Consulter le chapitre'}
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={handleDownloadChapter}
+                isLoading={chapterDownloadLoading}
+                disabled={!selectedChapterDoc}
+              >
+                Telecharger le chapitre
               </Button>
               {selectedChapterDoc && !isChapterApproved && (
                 <Button

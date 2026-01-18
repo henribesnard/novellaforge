@@ -6,12 +6,14 @@ from sqlalchemy import select
 from typing import List
 from uuid import UUID, uuid4
 from datetime import datetime
+import io
 import re
 import unicodedata
+import zipfile
 
 from app.db.session import get_db
 from app.models.user import User
-from app.models.document import Document
+from app.models.document import Document, DocumentType
 from app.schemas.project import (
     ProjectCreate,
     ProjectUpdate,
@@ -228,7 +230,7 @@ async def download_project(
     current_user: User = Depends(get_current_active_user),
 ):
     """
-    Download all project elements in order as a markdown file.
+    Download all chapters as a zip archive with one markdown per chapter.
     """
     project_service = ProjectService(db)
     project = await project_service.get_by_id(project_id, current_user.id)
@@ -239,25 +241,47 @@ async def download_project(
         select(Document).where(Document.project_id == project_id).order_by(Document.order_index.asc())
     )
     documents = documents_result.scalars().all()
+    chapters = [doc for doc in documents if doc.document_type == DocumentType.CHAPTER]
 
-    parts: list[str] = []
-    if project.title:
-        parts.append(f"# {project.title}")
-    if project.description:
-        parts.append(project.description)
+    used_names: set[str] = set()
+    archive_buffer = io.BytesIO()
+    with zipfile.ZipFile(archive_buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for fallback_index, doc in enumerate(chapters, start=1):
+            metadata = doc.document_metadata if isinstance(doc.document_metadata, dict) else {}
+            raw_index = metadata.get("chapter_index")
+            try:
+                chapter_index = int(raw_index)
+            except (TypeError, ValueError):
+                chapter_index = (doc.order_index + 1) if doc.order_index is not None else fallback_index
 
-    for doc in documents:
-        if doc.title:
-            parts.append(f"## {doc.title}")
-        if doc.content:
-            parts.append(doc.content)
+            title = doc.title or f"Chapter {chapter_index}"
+            safe_title = _safe_filename(title, f"chapter-{chapter_index}")
+            base_name = f"{chapter_index:03d}-{safe_title}"
+            filename = f"{base_name}.md"
+            if filename in used_names:
+                suffix = 2
+                while True:
+                    candidate = f"{base_name}-{suffix}.md"
+                    if candidate not in used_names:
+                        filename = candidate
+                        break
+                    suffix += 1
+            used_names.add(filename)
 
-    payload = "\n\n".join(parts)
-    filename = f"{_safe_filename(project.title or 'project', 'project')}.md"
+            content_parts = []
+            if doc.title:
+                content_parts.append(f"# {doc.title}")
+            if doc.content:
+                content_parts.append(doc.content)
+            payload = "\n\n".join(content_parts)
+            archive.writestr(filename, payload)
+
+    archive_buffer.seek(0)
+    filename = f"{_safe_filename(project.title or 'project', 'project')}.zip"
 
     return Response(
-        content=payload,
-        media_type="text/markdown; charset=utf-8",
+        content=archive_buffer.getvalue(),
+        media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
