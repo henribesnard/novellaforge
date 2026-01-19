@@ -1,12 +1,11 @@
 """Project service"""
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException, status
 
 from app.models.project import Project
-from app.models.user import User
 from app.schemas.project import ProjectCreate, ProjectUpdate
 from app.core.config import settings
 
@@ -57,7 +56,7 @@ class ProjectService:
         count_result = await self.db.execute(
             select(func.count(Project.id)).where(Project.owner_id == user_id)
         )
-        total = count_result.scalar()
+        total = int(count_result.scalar() or 0)
 
         # Get projects
         result = await self.db.execute(
@@ -103,7 +102,7 @@ class ProjectService:
             title = f"Projet {genre_label} sans titre"
 
         target_word_count = project_data.target_word_count or 200000
-        project_metadata = {
+        project_metadata: Dict[str, Any] = {
             "concept": None,
             "plan": None,
             "synopsis": None,

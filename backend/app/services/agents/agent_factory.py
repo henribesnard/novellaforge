@@ -5,6 +5,7 @@ from .narrative_architect import NarrativeArchitect
 from .character_manager import CharacterManager
 from .style_expert import StyleExpert
 from .dialogue_master import DialogueMaster
+from .consistency_analyst import ConsistencyAnalyst
 
 
 class AgentFactory:
@@ -15,10 +16,10 @@ class AgentFactory:
         "character_manager": CharacterManager,
         "style_expert": StyleExpert,
         "dialogue_master": DialogueMaster,
+        "consistency_analyst": ConsistencyAnalyst,
         # TODO: Ajouter les 7 autres agents
         # "scene_planner": ScenePlanner,
         # "timeline_keeper": TimelineKeeper,
-        # "consistency_analyst": ConsistencyAnalyst,
         # "atmosphere_descriptor": AtmosphereDescriptor,
         # "writer": Writer,
         # "corrector": Corrector,
@@ -34,9 +35,9 @@ class AgentFactory:
         return cls._agents[agent_type]()
 
     @classmethod
-    def get_available_agents(cls) -> Dict[str, str]:
+    def get_available_agents(cls) -> Dict[str, Dict[str, str]]:
         """Retourne la liste des agents disponibles avec leurs descriptions"""
-        agents_info = {}
+        agents_info: Dict[str, Dict[str, str]] = {}
         for agent_type, agent_class in cls._agents.items():
             instance = agent_class()
             agents_info[agent_type] = {

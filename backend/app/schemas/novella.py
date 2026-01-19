@@ -74,6 +74,11 @@ class ChapterPlan(BaseModel):
     arc_id: Optional[str] = None
     status: str = "planned"
     cliffhanger_type: Optional[str] = None
+    required_plot_points: List[str] = Field(default_factory=list)
+    optional_subplots: List[str] = Field(default_factory=list)
+    arc_constraints: List[str] = Field(default_factory=list)
+    forbidden_actions: List[str] = Field(default_factory=list)
+    success_criteria: Optional[str] = None
 
 
 class PlanPayload(BaseModel):

@@ -1,13 +1,23 @@
 """Project model"""
-from sqlalchemy import Column, String, Integer, Text, DateTime, ForeignKey, Enum
-from sqlalchemy.dialects.postgresql import UUID, JSONB
-from sqlalchemy.ext.mutable import MutableDict
-from sqlalchemy.orm import relationship
+from __future__ import annotations
+
 from datetime import datetime
-import uuid
 import enum
+from typing import Any, Optional, TYPE_CHECKING
+from uuid import UUID
+import uuid
+
+from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy.dialects.postgresql import JSONB, UUID as PGUUID
+from sqlalchemy.ext.mutable import MutableDict
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+
+if TYPE_CHECKING:
+    from app.models.user import User
+    from app.models.document import Document
+    from app.models.character import Character
 
 
 def utc_now():
@@ -45,31 +55,53 @@ class Project(Base):
     """Project model"""
     __tablename__ = "projects"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    title = Column(String(255), nullable=False)
-    description = Column(Text, nullable=True)
-    genre = Column(Enum(Genre), nullable=True)
-    status = Column(Enum(ProjectStatus), default=ProjectStatus.DRAFT, nullable=False)
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    genre: Mapped[Optional[Genre]] = mapped_column(Enum(Genre), nullable=True)
+    status: Mapped[ProjectStatus] = mapped_column(
+        Enum(ProjectStatus),
+        default=ProjectStatus.DRAFT,
+        nullable=False,
+    )
 
     # Metadata
-    target_word_count = Column(Integer, nullable=True)
-    current_word_count = Column(Integer, default=0)
+    target_word_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    current_word_count: Mapped[int] = mapped_column(Integer, default=0)
 
     # Structure
-    structure_template = Column(String(50), nullable=True)  # "3-act", "5-act", "hero-journey", etc.
-    project_metadata = Column(MutableDict.as_mutable(JSONB), default=dict)  # For flexible additional data
+    structure_template: Mapped[Optional[str]] = mapped_column(
+        String(50),
+        nullable=True,
+    )  # "3-act", "5-act", "hero-journey", etc.
+    project_metadata: Mapped[dict[str, Any]] = mapped_column(
+        MutableDict.as_mutable(JSONB),
+        default=dict,
+    )  # For flexible additional data (continuity, story_bible, tracked_contradictions)
 
     # Owner
-    owner_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    owner_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
 
     # Timestamps
-    created_at = Column(DateTime, default=utc_now, nullable=False)
-    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
+    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)
 
     # Relationships
-    owner = relationship("User", back_populates="projects")
-    documents = relationship("Document", back_populates="project", cascade="all, delete-orphan")
-    characters = relationship("Character", back_populates="project", cascade="all, delete-orphan")
+    owner: Mapped["User"] = relationship("User", back_populates="projects")
+    documents: Mapped[list["Document"]] = relationship(
+        "Document",
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
+    characters: Mapped[list["Character"]] = relationship(
+        "Character",
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
 
     def __repr__(self):
         return f"<Project {self.title}>"

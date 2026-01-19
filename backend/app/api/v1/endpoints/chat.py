@@ -9,8 +9,8 @@ from app.models.user import User
 from app.schemas.chat import (
     ChatMessageCreate,
     ChatMessageResponse,
-    ChatMessage,
     ChatHistoryResponse,
+    ChatMessage as ChatMessageSchema,
 )
 from app.services.chat_service import ChatService
 from app.core.security import get_current_active_user
@@ -68,9 +68,12 @@ async def get_chat_history(
             limit=limit,
         )
 
+        payload_messages = [
+            ChatMessageSchema.model_validate(message) for message in messages
+        ]
         return ChatHistoryResponse(
-            messages=messages,
-            total=len(messages),
+            messages=payload_messages,
+            total=len(payload_messages),
         )
     except Exception as e:
         raise HTTPException(

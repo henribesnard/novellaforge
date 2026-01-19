@@ -94,7 +94,10 @@ async def list_characters(
         limit=limit
     )
 
-    return CharacterList(characters=characters, total=total)
+    payload_characters = [
+        CharacterResponse.model_validate(character) for character in characters
+    ]
+    return CharacterList(characters=payload_characters, total=total)
 
 
 @router.post("/", response_model=CharacterResponse, status_code=status.HTTP_201_CREATED)
@@ -326,4 +329,7 @@ async def generate_main_characters(
         )
         created.append(character)
 
-    return CharacterList(characters=created, total=len(created))
+    payload_created = [
+        CharacterResponse.model_validate(character) for character in created
+    ]
+    return CharacterList(characters=payload_created, total=len(payload_created))

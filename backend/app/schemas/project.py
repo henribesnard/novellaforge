@@ -1,5 +1,5 @@
 """Project schemas"""
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Literal
 from datetime import datetime
 from pydantic import BaseModel, Field, ConfigDict
 from uuid import UUID
@@ -44,6 +44,19 @@ class ProjectUpdate(BaseModel):
 class ProjectDeleteRequest(BaseModel):
     """Schema for deleting a project with confirmation"""
     confirm_title: str = Field(..., min_length=1, max_length=255)
+
+
+class ContradictionResolution(BaseModel):
+    """Resolution payload for a tracked contradiction."""
+    type: Literal["retcon", "explanation", "ignore"]
+    action_taken: Optional[str] = None
+    bible_update: Optional[str] = None
+
+
+class ContradictionIntentionalRequest(BaseModel):
+    """Mark a contradiction as intentional with explanation."""
+    explanation: str = Field(..., min_length=1)
+    bible_update: Optional[str] = None
 
 
 class ProjectResponse(ProjectBase):

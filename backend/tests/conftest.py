@@ -29,6 +29,9 @@ except ModuleNotFoundError:
             return decorator
 
     slowapi_module.Limiter = DummyLimiter
+    def _rate_limit_exceeded_handler(request, exc):
+        return None
+    slowapi_module._rate_limit_exceeded_handler = _rate_limit_exceeded_handler
     sys.modules["slowapi"] = slowapi_module
 
     slowapi_util = types.ModuleType("slowapi.util")
@@ -38,3 +41,11 @@ except ModuleNotFoundError:
 
     slowapi_util.get_remote_address = get_remote_address
     sys.modules["slowapi.util"] = slowapi_util
+
+    slowapi_errors = types.ModuleType("slowapi.errors")
+
+    class RateLimitExceeded(Exception):
+        pass
+
+    slowapi_errors.RateLimitExceeded = RateLimitExceeded
+    sys.modules["slowapi.errors"] = slowapi_errors

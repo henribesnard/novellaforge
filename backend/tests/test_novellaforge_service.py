@@ -2,7 +2,10 @@ import pytest
 from types import SimpleNamespace
 from uuid import uuid4
 
+from fastapi import HTTPException
+
 from app.models.project import Genre
+from app.core.config import settings
 from app.services.novella_service import NovellaForgeService
 
 
@@ -10,6 +13,13 @@ class DummyDB:
     def __init__(self) -> None:
         self.commits = 0
         self.refreshes = 0
+
+    async def execute(self, *args, **kwargs):
+        class DummyResult:
+            def fetchall(self):
+                return []
+
+        return DummyResult()
 
     async def commit(self) -> None:
         self.commits += 1
@@ -100,7 +110,18 @@ async def test_generate_plan_normalizes_fallback(monkeypatch):
     project = SimpleNamespace(
         id=project_id,
         owner_id=user_id,
-        project_metadata={},
+        project_metadata={
+            "concept": {
+                "status": "accepted",
+                "data": {
+                    "premise": "A gritty thriller premise",
+                    "tone": "dark",
+                    "tropes": ["conspiracy"],
+                    "emotional_orientation": "tension",
+                },
+                "updated_at": "2024-01-01T00:00:00",
+            }
+        },
         description="",
         genre=Genre.THRILLER,
         target_word_count=6000,
@@ -127,3 +148,146 @@ async def test_generate_plan_normalizes_fallback(monkeypatch):
     assert plan["chapters"][0]["status"] == "planned"
     assert db.commits == 1
     assert db.refreshes == 1
+
+
+@pytest.mark.asyncio
+async def test_generate_plan_includes_plot_constraints(monkeypatch):
+    project_id = uuid4()
+    user_id = uuid4()
+    project = SimpleNamespace(
+        id=project_id,
+        owner_id=user_id,
+        project_metadata={
+            "concept": {
+                "status": "accepted",
+                "data": {
+                    "premise": "A gritty thriller premise",
+                    "tone": "dark",
+                    "tropes": ["conspiracy"],
+                    "emotional_orientation": "tension",
+                },
+                "updated_at": "2024-01-01T00:00:00",
+            }
+        },
+        description="",
+        genre=Genre.THRILLER,
+        target_word_count=6000,
+    )
+    db = DummyDB()
+    service = NovellaForgeService(db)
+    service.llm_client = DummyLLM(
+        '{"global_summary":"x","arcs":[{"id":"arc-1","title":"Arc 1","summary":"s","target_emotion":"tension","chapter_start":1,"chapter_end":1}],'
+        '"chapters":[{"index":1,"title":"Ch1","summary":"S","emotional_stake":"high","arc_id":"arc-1",'
+        '"cliffhanger_type":"revelation","required_plot_points":"Reveal, Secret",'
+        '"optional_subplots":["Side"],"arc_constraints":"Keep tension",'
+        '"forbidden_actions":["No death"],"success_criteria":"Shock"}]}'
+    )
+
+    async def fake_get_project(pid, uid):
+        return project
+
+    monkeypatch.setattr(service, "_get_project", fake_get_project)
+
+    result = await service.generate_plan(
+        project_id, user_id, chapter_count=1, arc_count=1, regenerate=True
+    )
+
+    chapter = result["data"]["chapters"][0]
+    assert chapter["required_plot_points"] == ["Reveal", "Secret"]
+    assert chapter["forbidden_actions"] == ["No death"]
+    assert chapter["success_criteria"] == "Shock"
+
+
+@pytest.mark.asyncio
+async def test_generate_synopsis_rejects_unaccepted_concept(monkeypatch):
+    project_id = uuid4()
+    user_id = uuid4()
+    project = SimpleNamespace(
+        id=project_id,
+        owner_id=user_id,
+        project_metadata={"concept": {"status": "draft", "data": {}}},
+    )
+    service = NovellaForgeService(DummyDB())
+
+    async def fake_get_project(pid, uid):
+        return project
+
+    monkeypatch.setattr(service, "_get_project", fake_get_project)
+
+    with pytest.raises(HTTPException) as excinfo:
+        await service.generate_synopsis(project_id, user_id)
+
+    assert excinfo.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_generate_synopsis_uses_fallback_on_invalid_json(monkeypatch):
+    project_id = uuid4()
+    user_id = uuid4()
+    concept = {"premise": "Premise", "tone": "tone", "tropes": [], "emotional_orientation": "x"}
+    project = SimpleNamespace(
+        id=project_id,
+        owner_id=user_id,
+        project_metadata={"concept": {"status": "accepted", "data": concept}},
+    )
+    db = DummyDB()
+    service = NovellaForgeService(db)
+    service.llm_client = DummyLLM("not-json")
+
+    async def fake_get_project(pid, uid):
+        return project
+
+    monkeypatch.setattr(service, "_get_project", fake_get_project)
+
+    result = await service.generate_synopsis(project_id, user_id)
+
+    assert result["status"] == "draft"
+    assert "synopsis" in project.project_metadata
+    assert db.commits == 1
+    assert db.refreshes == 1
+
+
+@pytest.mark.asyncio
+async def test_accept_concept_updates_project(monkeypatch):
+    project_id = uuid4()
+    user_id = uuid4()
+    project = SimpleNamespace(
+        id=project_id,
+        owner_id=user_id,
+        project_metadata=None,
+        description=None,
+        title=None,
+    )
+    db = DummyDB()
+    service = NovellaForgeService(db)
+
+    async def fake_get_project(pid, uid):
+        return project
+
+    monkeypatch.setattr(service, "_get_project", fake_get_project)
+
+    concept = {"premise": "Premise", "title": "Title"}
+    result = await service.accept_concept(project_id, user_id, concept)
+
+    assert result["status"] == "accepted"
+    assert project.description == "Premise"
+    assert project.title == "Title"
+    assert db.commits == 1
+    assert db.refreshes == 1
+
+
+def test_chapter_word_range_defaults_and_bounds():
+    service = NovellaForgeService(DummyDB())
+    metadata = {"chapter_word_range": {"min": -5, "max": 999999}}
+
+    assert service._get_chapter_min(metadata) == settings.CHAPTER_MIN_WORDS
+    assert service._get_chapter_max(metadata) == settings.CHAPTER_MAX_WORDS
+
+    valid = {
+        "chapter_word_range": {
+            "min": settings.CHAPTER_MIN_WORDS + 10,
+            "max": settings.CHAPTER_MAX_WORDS - 10,
+        }
+    }
+    assert service._get_chapter_min(valid) == settings.CHAPTER_MIN_WORDS + 10
+    assert service._get_chapter_max(valid) == settings.CHAPTER_MAX_WORDS - 10

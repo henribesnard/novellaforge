@@ -1,9 +1,7 @@
 """File processing service for document imports"""
-import os
 import re
 from typing import Tuple
 from pathlib import Path
-import tempfile
 
 
 class FileProcessor:

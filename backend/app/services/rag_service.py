@@ -2,6 +2,7 @@
 from typing import List, Dict, Any
 from uuid import UUID
 import asyncio
+import logging
 
 from qdrant_client import QdrantClient
 from qdrant_client.http import models as qdrant_models
@@ -11,6 +12,9 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from app.core.config import settings
 from app.models.document import Document
+
+
+logger = logging.getLogger(__name__)
 
 
 class RagService:
@@ -51,6 +55,25 @@ class RagService:
         self.client.delete(
             collection_name=self.collection_name,
             points_selector=project_filter,
+        )
+
+    def _delete_document_vectors(self, project_id: UUID, document_id: UUID) -> None:
+        """Delete existing vectors for a single document."""
+        document_filter = qdrant_models.Filter(
+            must=[
+                qdrant_models.FieldCondition(
+                    key="project_id",
+                    match=qdrant_models.MatchValue(value=str(project_id)),
+                ),
+                qdrant_models.FieldCondition(
+                    key="document_id",
+                    match=qdrant_models.MatchValue(value=str(document_id)),
+                ),
+            ]
+        )
+        self.client.delete(
+            collection_name=self.collection_name,
+            points_selector=document_filter,
         )
 
     def index_documents(
@@ -96,6 +119,40 @@ class RagService:
         vector_store.add_texts(texts=texts, metadatas=metadatas)
         return len(texts)
 
+    def update_document(self, project_id: UUID, document: Document) -> int:
+        """Update vectors for a single document."""
+        self._ensure_collection()
+        self._delete_document_vectors(project_id, document.id)
+        if not document.content:
+            return 0
+
+        texts: List[str] = []
+        metadatas: List[Dict[str, Any]] = []
+        chunks = self.text_splitter.split_text(document.content)
+        for idx, chunk in enumerate(chunks):
+            texts.append(chunk)
+            metadatas.append(
+                {
+                    "project_id": str(project_id),
+                    "document_id": str(document.id),
+                    "title": document.title,
+                    "order_index": document.order_index,
+                    "document_type": document.document_type.value if document.document_type else None,
+                    "chunk_index": idx,
+                }
+            )
+
+        if not texts:
+            return 0
+
+        vector_store = Qdrant(
+            client=self.client,
+            collection_name=self.collection_name,
+            embeddings=self.embeddings,
+        )
+        vector_store.add_texts(texts=texts, metadatas=metadatas)
+        return len(texts)
+
     def retrieve(
         self,
         project_id: UUID,
@@ -120,6 +177,24 @@ class RagService:
         docs = vector_store.similarity_search(query, k=top_k, filter=project_filter)
         return [doc.page_content for doc in docs]
 
+    def count_project_vectors(self, project_id: UUID) -> int:
+        """Count vectors for a project."""
+        self._ensure_collection()
+        project_filter = qdrant_models.Filter(
+            must=[
+                qdrant_models.FieldCondition(
+                    key="project_id",
+                    match=qdrant_models.MatchValue(value=str(project_id)),
+                )
+            ]
+        )
+        count_result = self.client.count(
+            collection_name=self.collection_name,
+            count_filter=project_filter,
+            exact=True,
+        )
+        return int(count_result.count or 0)
+
     async def aindex_documents(
         self,
         project_id: UUID,
@@ -129,6 +204,10 @@ class RagService:
         """Async wrapper for indexing documents."""
         return await asyncio.to_thread(self.index_documents, project_id, documents, clear_existing)
 
+    async def aupdate_document(self, project_id: UUID, document: Document) -> int:
+        """Async wrapper for updating a single document."""
+        return await asyncio.to_thread(self.update_document, project_id, document)
+
     async def aretrieve(
         self,
         project_id: UUID,
@@ -137,3 +216,7 @@ class RagService:
     ) -> List[str]:
         """Async wrapper for retrieval."""
         return await asyncio.to_thread(self.retrieve, project_id, query, top_k)
+
+    async def acount_project_vectors(self, project_id: UUID) -> int:
+        """Async wrapper for vector count."""
+        return await asyncio.to_thread(self.count_project_vectors, project_id)

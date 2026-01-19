@@ -4,6 +4,7 @@ from .narrative_architect import NarrativeArchitect
 from .character_manager import CharacterManager
 from .style_expert import StyleExpert
 from .dialogue_master import DialogueMaster
+from .consistency_analyst import ConsistencyAnalyst
 from .agent_factory import AgentFactory
 
 __all__ = [
@@ -12,5 +13,6 @@ __all__ = [
     "CharacterManager",
     "StyleExpert",
     "DialogueMaster",
+    "ConsistencyAnalyst",
     "AgentFactory",
 ]

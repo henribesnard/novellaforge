@@ -1,12 +1,20 @@
 """Document model"""
-from sqlalchemy import Column, String, Integer, Text, DateTime, ForeignKey, Enum
-from sqlalchemy.dialects.postgresql import UUID, JSONB
-from sqlalchemy.orm import relationship
+from __future__ import annotations
+
 from datetime import datetime
-import uuid
 import enum
+from typing import Any, Optional, TYPE_CHECKING
+from uuid import UUID
+import uuid
+
+from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy.dialects.postgresql import JSONB, UUID as PGUUID
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+
+if TYPE_CHECKING:
+    from app.models.project import Project
 
 
 def utc_now():
@@ -27,25 +35,36 @@ class Document(Base):
     """Document model"""
     __tablename__ = "documents"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    title = Column(String(255), nullable=False)
-    content = Column(Text, nullable=True)
-    document_type = Column(Enum(DocumentType), default=DocumentType.CHAPTER, nullable=False)
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    content: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    document_type: Mapped[DocumentType] = mapped_column(
+        Enum(DocumentType),
+        default=DocumentType.CHAPTER,
+        nullable=False,
+    )
 
     # Metadata
-    order_index = Column(Integer, default=0)  # For ordering chapters/scenes
-    word_count = Column(Integer, default=0)
-    document_metadata = Column(JSONB, default=dict)  # For additional data (tags, notes, etc.)
+    order_index: Mapped[int] = mapped_column(Integer, default=0)  # For ordering chapters/scenes
+    word_count: Mapped[int] = mapped_column(Integer, default=0)
+    document_metadata: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        default=dict,
+    )  # For additional data (tags, notes, etc.)
 
     # Project relationship
-    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    project_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
 
     # Timestamps
-    created_at = Column(DateTime, default=utc_now, nullable=False)
-    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
+    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)
 
     # Relationships
-    project = relationship("Project", back_populates="documents")
+    project: Mapped["Project"] = relationship("Project", back_populates="documents")
 
     def __repr__(self):
         return f"<Document {self.title}>"

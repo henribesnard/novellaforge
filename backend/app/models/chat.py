@@ -1,12 +1,21 @@
 """Chat message model"""
-from sqlalchemy import Column, String, Text, DateTime, ForeignKey, Enum
-from sqlalchemy.dialects.postgresql import UUID, JSONB
-from sqlalchemy.orm import relationship
+from __future__ import annotations
+
 from datetime import datetime
-import uuid
 import enum
+from typing import Any, Optional, TYPE_CHECKING
+from uuid import UUID
+import uuid
+
+from sqlalchemy import DateTime, Enum, ForeignKey, Text
+from sqlalchemy.dialects.postgresql import JSONB, UUID as PGUUID
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+
+if TYPE_CHECKING:
+    from app.models.user import User
+    from app.models.project import Project
 
 
 def utc_now():
@@ -26,8 +35,8 @@ class ChatMessage(Base):
     """Chat message model"""
     __tablename__ = "chat_messages"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    role = Column(
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    role: Mapped[MessageRole] = mapped_column(
         Enum(
             MessageRole,
             values_callable=lambda obj: [e.value for e in obj],
@@ -35,23 +44,31 @@ class ChatMessage(Base):
         ),
         nullable=False,
     )
-    content = Column(Text, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
 
     # Optional project context
-    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=True)
+    project_id: Mapped[Optional[UUID]] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=True,
+    )
 
     # User who sent/received the message
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    user_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
 
     # Additional metadata (renamed to avoid conflict with SQLAlchemy's metadata)
-    message_metadata = Column("metadata", JSONB, default=dict)
+    message_metadata: Mapped[dict[str, Any]] = mapped_column("metadata", JSONB, default=dict)
 
     # Timestamps
-    created_at = Column(DateTime, default=utc_now, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
 
     # Relationships
-    user = relationship("User", back_populates="chat_messages")
-    project = relationship("Project")
+    user: Mapped["User"] = relationship("User", back_populates="chat_messages")
+    project: Mapped[Optional["Project"]] = relationship("Project")
 
     def __repr__(self):
         return f"<ChatMessage {self.role}: {self.content[:50]}>"

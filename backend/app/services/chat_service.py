@@ -4,7 +4,6 @@ from typing import List, Optional, Dict, Any
 from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
-from datetime import datetime, timezone
 
 from app.models.chat import ChatMessage, MessageRole
 from app.models.project import Project

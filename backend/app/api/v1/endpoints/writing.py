@@ -143,6 +143,7 @@ async def generate_chapter(
         critique=critique,
         needs_review=not request.auto_approve,
         continuity_alerts=result.get("continuity_alerts", []),
+        continuity_validation=result.get("continuity_validation"),
         retrieved_chunks=result.get("retrieved_chunks", []),
     )
 
@@ -164,4 +165,6 @@ async def approve_chapter(
         document_id=result.get("document_id", str(request.document_id)),
         status=result.get("status", "approved"),
         summary=result.get("summary"),
+        rag_updated=bool(result.get("rag_updated")),
+        rag_update_error=result.get("rag_update_error"),
     )

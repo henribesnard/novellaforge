@@ -2,6 +2,7 @@
 NovellaForge - Serial Fiction Studio
 Main FastAPI Application
 """
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
@@ -19,13 +20,40 @@ from app.db.base import Base
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=settings.LOG_LEVEL,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    force=True,
 )
 logger = logging.getLogger(__name__)
+app_logger = logging.getLogger("app")
+app_logger.setLevel(settings.LOG_LEVEL)
+app_logger.propagate = True
+app_logger.disabled = False
+
+pipeline_logger = logging.getLogger("app.services.writing_pipeline")
+pipeline_logger.setLevel(settings.LOG_LEVEL)
+pipeline_logger.propagate = True
+pipeline_logger.disabled = False
 
 # Configure rate limiter
 limiter = Limiter(key_func=get_remote_address, default_limits=["100/minute"])
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Initialize and cleanup application resources."""
+    logger.info(f"Starting {settings.PROJECT_NAME} v{settings.VERSION}")
+    logger.info(f"Environment: {settings.APP_ENV}")
+    logger.info(f"Debug mode: {settings.DEBUG}")
+
+    if settings.DEBUG:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        logger.info("Database tables created")
+
+    yield
+
+    logger.info(f"Shutting down {settings.PROJECT_NAME}")
+
 
 # Create FastAPI application
 app = FastAPI(
@@ -35,6 +63,7 @@ app = FastAPI(
     docs_url="/api/docs" if settings.DEBUG else None,
     redoc_url="/api/redoc" if settings.DEBUG else None,
     openapi_url="/api/openapi.json" if settings.DEBUG else None,
+    lifespan=lifespan,
 )
 
 # Add rate limiter state
@@ -126,28 +155,6 @@ async def root():
 
 # Include API router
 app.include_router(api_router, prefix="/api/v1")
-
-
-# Startup event
-@app.on_event("startup")
-async def startup_event():
-    """Initialize application on startup"""
-    logger.info(f"Starting {settings.PROJECT_NAME} v{settings.VERSION}")
-    logger.info(f"Environment: {settings.APP_ENV}")
-    logger.info(f"Debug mode: {settings.DEBUG}")
-
-    # Create database tables (for development only)
-    if settings.DEBUG:
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        logger.info("Database tables created")
-
-
-# Shutdown event
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Cleanup on shutdown"""
-    logger.info(f"Shutting down {settings.PROJECT_NAME}")
 
 
 if __name__ == "__main__":

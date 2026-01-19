@@ -102,7 +102,7 @@ class DocumentService:
                 Document.project_id == project_id
             )
         )
-        total = count_result.scalar()
+        total = int(count_result.scalar() or 0)
 
         # Get documents
         result = await self.db.execute(

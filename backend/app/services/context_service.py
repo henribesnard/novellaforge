@@ -1,5 +1,5 @@
 """Project context builder for writing and agents."""
-from typing import Dict, Any, Optional
+from typing import Dict, Any, List
 from uuid import UUID
 
 from sqlalchemy import select
@@ -50,8 +50,9 @@ class ProjectContextService:
         project_metadata = project.project_metadata or {}
         concept = None
         plan = None
-        continuity = {}
-        recent_chapter_summaries = []
+        continuity: Dict[str, Any] = {}
+        recent_chapter_summaries: List[str] = []
+        story_bible: Dict[str, Any] = {}
         if isinstance(project_metadata, dict):
             concept_entry = project_metadata.get("concept")
             plan_entry = project_metadata.get("plan")
@@ -69,6 +70,9 @@ class ProjectContextService:
                 )
             continuity = project_metadata.get("continuity") or {}
             recent_chapter_summaries = project_metadata.get("recent_chapter_summaries") or []
+            story_bible = project_metadata.get("story_bible") or {}
+            if not isinstance(story_bible, dict):
+                story_bible = {}
         constraints = project_metadata.get("constraints") if isinstance(project_metadata, dict) else None
         instructions_raw = project_metadata.get("instructions") if isinstance(project_metadata, dict) else None
         instructions = []
@@ -107,6 +111,7 @@ class ProjectContextService:
             },
             "constraints": constraints or {},
             "instructions": instructions,
+            "story_bible": story_bible,
             "documents": [
                 {
                     "id": str(doc.id),

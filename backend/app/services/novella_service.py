@@ -276,6 +276,16 @@ class NovellaForgeService:
     ) -> Dict[str, Any]:
         project = await self._get_project(project_id, user_id)
         metadata = project.project_metadata if isinstance(project.project_metadata, dict) else {}
+        if not isinstance(metadata, dict):
+            metadata = {}
+        if not isinstance(metadata.get("story_bible"), dict):
+            metadata["story_bible"] = {
+                "world_rules": [],
+                "timeline": [],
+                "glossary": {"terms": [], "places": [], "factions": []},
+                "core_themes": [],
+                "established_facts": [],
+            }
         plan_entry = metadata.get("plan")
         if plan_entry and not regenerate:
             return plan_entry
@@ -302,7 +312,9 @@ class NovellaForgeService:
             "Reponds en francais uniquement. Toutes les valeurs doivent etre en francais. "
             "Retourne un JSON strict avec les cles: global_summary, arcs, chapters.\n"
             "Chaque arc: id, title, summary, target_emotion, chapter_start, chapter_end.\n"
-            "Chaque chapitre: index, title, summary, emotional_stake, arc_id, cliffhanger_type.\n"
+            "Chaque chapitre: index, title, summary, emotional_stake, arc_id, cliffhanger_type, "
+            "required_plot_points (liste de 2-4), optional_subplots (liste), "
+            "arc_constraints (liste), forbidden_actions (liste), success_criteria.\n"
             f"Genre: {genre_label} (code: {genre})\n"
             f"Premisse: {concept.get('premise', '')}\n"
             f"Ton: {concept.get('tone', '')}\n"
@@ -340,6 +352,13 @@ class NovellaForgeService:
             pass
         return fallback
 
+    def _normalize_list(self, value: Any) -> List[str]:
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item).strip()]
+        if isinstance(value, str):
+            return [item.strip() for item in value.split(",") if item.strip()]
+        return []
+
     def _fallback_plan(self, chapter_count: int, arc_count: int) -> Dict[str, Any]:
         arcs = []
         chapters = []
@@ -367,6 +386,11 @@ class NovellaForgeService:
                         "emotional_stake": "tension",
                         "arc_id": arc_id,
                         "cliffhanger_type": "revelation",
+                        "required_plot_points": [],
+                        "optional_subplots": [],
+                        "arc_constraints": [],
+                        "forbidden_actions": [],
+                        "success_criteria": "Faire progresser l'intrigue principale.",
                         "status": "planned",
                     }
                 )
@@ -394,6 +418,11 @@ class NovellaForgeService:
                 None,
             )
             arc_id = source.get("arc_id") if source else None
+            required_plot_points = self._normalize_list((source or {}).get("required_plot_points"))
+            optional_subplots = self._normalize_list((source or {}).get("optional_subplots"))
+            arc_constraints = self._normalize_list((source or {}).get("arc_constraints"))
+            forbidden_actions = self._normalize_list((source or {}).get("forbidden_actions"))
+            success_criteria = (source or {}).get("success_criteria") or "Faire progresser l'intrigue principale."
             normalized_chapters.append(
                 {
                     "index": idx,
@@ -402,6 +431,11 @@ class NovellaForgeService:
                     "emotional_stake": (source or {}).get("emotional_stake") or "tension",
                     "arc_id": arc_id,
                     "cliffhanger_type": (source or {}).get("cliffhanger_type") or "revelation",
+                    "required_plot_points": required_plot_points,
+                    "optional_subplots": optional_subplots,
+                    "arc_constraints": arc_constraints,
+                    "forbidden_actions": forbidden_actions,
+                    "success_criteria": success_criteria,
                     "status": (source or {}).get("status") or "planned",
                 }
             )

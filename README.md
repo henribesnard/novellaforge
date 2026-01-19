@@ -89,5 +89,21 @@ Variables cles:
 - CHROMA_HOST, CHROMA_PORT, CHROMA_COLLECTION_PREFIX
 - CHAT_MAX_TOKENS, DEEPSEEK_TIMEOUT
 
+## Chapter generation performance tuning
+Optimisations applied in the writing pipeline:
+- Plan: uses deepseek-chat by default, optional reasoning only on early/critical chapters, and skips plan LLM when scene beats already exist.
+- Write: parallel beat generation, per-beat token caps, partial revision on last beat, early stop in sequential mode.
+- Validation: single LLM call for coherence + plot points, graph checks run in parallel, optional fallback validation disabled by default.
+- Context: memory context cache, prompt truncation for memory/style/RAG/story bible to reduce token load.
+- Logs: [PERF] timings for nodes and LLM calls.
+
+Tuning knobs (see .env.example):
+- MAX_REVISIONS, QUALITY_GATE_COHERENCE_THRESHOLD, QUALITY_GATE_SCORE_THRESHOLD
+- PLAN_REASONING_*
+- WRITE_PARALLEL_BEATS, WRITE_PARTIAL_REVISION, WRITE_PREVIOUS_BEATS_MAX_CHARS
+- WRITE_EARLY_STOP_RATIO, WRITE_MIN_BEAT_WORDS, WRITE_TOKENS_PER_WORD, WRITE_MAX_TOKENS
+- MEMORY_CONTEXT_MAX_CHARS, RAG_CONTEXT_MAX_CHARS, STYLE_CONTEXT_MAX_CHARS, STORY_BIBLE_MAX_CHARS
+- VALIDATION_MAX_CHARS, VALIDATION_ALLOW_FALLBACK, CRITIC_MAX_CHARS
+
 ## Tests
 Backend: pytest (voir `backend/tests`).

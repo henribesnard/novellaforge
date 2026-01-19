@@ -3,6 +3,7 @@ import math
 import re
 from datetime import datetime
 from uuid import uuid4
+import logging
 from httpx import ReadTimeout
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.responses import Response
@@ -33,10 +34,13 @@ from app.schemas.document import (
 from app.services.document_service import DocumentService
 from app.services.context_service import ProjectContextService
 from app.services.llm_client import DeepSeekClient
+from app.services.memory_service import MemoryService
+from app.services.rag_service import RagService
 from app.core.config import settings
 from app.core.security import get_current_active_user
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 ELEMENT_TYPE_DEFS: Dict[str, Dict[str, Any]] = {
     "partie": {"label": "Partie", "level": 1, "document_type": DocumentType.OUTLINE},
@@ -191,7 +195,7 @@ async def _ensure_versions_for_document(
     }
     await document_service.update(
         document.id,
-        DocumentUpdate(metadata=metadata_updates),
+        DocumentUpdate(metadata=metadata_updates, title=None, order_index=None),
         user_id,
     )
     return versions, base_version
@@ -400,7 +404,10 @@ async def list_documents(
         limit=limit
     )
 
-    return DocumentList(documents=documents, total=total)
+    payload_documents = [
+        DocumentResponse.model_validate(document) for document in documents
+    ]
+    return DocumentList(documents=payload_documents, total=total)
 
 
 @router.post("/", response_model=DocumentResponse, status_code=status.HTTP_201_CREATED)
@@ -476,10 +483,14 @@ async def download_document(
 
     metadata = document.document_metadata if isinstance(document.document_metadata, dict) else {}
     raw_index = metadata.get("chapter_index")
-    try:
-        chapter_index = int(raw_index)
-    except (TypeError, ValueError):
+    chapter_index: Optional[int]
+    if raw_index is None:
         chapter_index = (document.order_index + 1) if document.order_index is not None else None
+    else:
+        try:
+            chapter_index = int(raw_index)
+        except (TypeError, ValueError):
+            chapter_index = (document.order_index + 1) if document.order_index is not None else None
 
     if document.document_type == DocumentType.CHAPTER and project_title and chapter_index:
         safe_project = _safe_filename(project_title, "project")
@@ -516,7 +527,59 @@ async def update_document(
     """
     document_service = DocumentService(db)
     document = await document_service.update(document_id, document_data, current_user.id)
-    return document
+    update_errors: list[str] = []
+    metadata = document.document_metadata if isinstance(document.document_metadata, dict) else {}
+
+    if (
+        document.document_type == DocumentType.CHAPTER
+        and metadata.get("status") == "approved"
+    ):
+        memory_service = MemoryService()
+        try:
+            facts = await memory_service.extract_facts(document.content or "")
+            project = await db.get(Project, document.project_id)
+            if project:
+                project_metadata = project.project_metadata or {}
+                if not isinstance(project_metadata, dict):
+                    project_metadata = {}
+                project_metadata = memory_service.merge_facts(project_metadata, facts)
+                project.project_metadata = project_metadata
+                await db.commit()
+            else:
+                update_errors.append("project_not_found_for_memory_update")
+                logger.warning("Project missing for memory update: %s", document.project_id)
+            raw_chapter_index = metadata.get("chapter_index")
+            try:
+                chapter_index = int(raw_chapter_index) if raw_chapter_index is not None else None
+            except (TypeError, ValueError):
+                chapter_index = None
+            memory_service.update_neo4j(
+                facts,
+                project_id=str(document.project_id),
+                chapter_index=chapter_index,
+            )
+            summary = facts.get("summary") or metadata.get("summary")
+            memory_service.store_style_memory(
+                str(document.project_id),
+                str(document.id),
+                document.content or "",
+                summary,
+            )
+        except Exception as exc:
+            update_errors.append(f"memory_update_failed: {exc}")
+            logger.exception("Memory update failed for document %s", document.id)
+
+        rag_service = RagService()
+        try:
+            await rag_service.aupdate_document(document.project_id, document)
+        except Exception as exc:
+            update_errors.append(f"rag_update_failed: {exc}")
+            logger.exception("RAG update failed for document %s", document.id)
+
+    response = DocumentResponse.model_validate(document)
+    if update_errors:
+        response.metadata["coherence_update_error"] = "; ".join(update_errors)
+    return response
 
 
 @router.delete("/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -826,7 +889,12 @@ async def generate_element(
     if summary:
         metadata_updates["summary"] = summary
 
-    update_payload = DocumentUpdate(content=content.strip(), metadata=metadata_updates)
+    update_payload = DocumentUpdate(
+        content=content.strip(),
+        metadata=metadata_updates,
+        title=None,
+        order_index=None,
+    )
 
     updated = await document_service.update(
         document_id,
@@ -924,7 +992,7 @@ async def create_document_version(
 
     updated = await document_service.update(
         document_id,
-        DocumentUpdate(content=content, metadata=metadata_updates),
+        DocumentUpdate(content=content, metadata=metadata_updates, title=None, order_index=None),
         current_user.id,
     )
     return updated
@@ -942,7 +1010,6 @@ async def list_document_versions(
     if not document:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
 
-    metadata = document.document_metadata or {}
     versions, current_version = await _ensure_versions_for_document(
         document=document,
         document_service=document_service,
@@ -1010,7 +1077,7 @@ async def create_document_comment(
 
     comments = _load_comments(metadata)
 
-    comment_entry = {
+    comment_entry: Dict[str, Any] = {
         "id": str(uuid4()),
         "content": content,
         "created_at": datetime.utcnow().isoformat(),
@@ -1030,7 +1097,7 @@ async def create_document_comment(
         metadata_updates["current_version"] = current_version
     await document_service.update(
         document_id,
-        DocumentUpdate(metadata=metadata_updates),
+        DocumentUpdate(metadata=metadata_updates, title=None, order_index=None),
         current_user.id,
     )
 
@@ -1053,7 +1120,6 @@ async def get_document_version(
     if not document:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
 
-    metadata = document.document_metadata or {}
     versions, current_version = await _ensure_versions_for_document(
         document=document,
         document_service=document_service,

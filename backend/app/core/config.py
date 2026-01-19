@@ -2,9 +2,8 @@
 Configuration settings for NovellaForge
 """
 from typing import List, Optional, Union
-from pydantic_settings import BaseSettings
-from pydantic import Field, field_validator, ValidationError
-import os
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import AliasChoices, Field, field_validator
 import secrets
 
 
@@ -14,12 +13,12 @@ class Settings(BaseSettings):
     # Project Info
     PROJECT_NAME: str = "NovellaForge API"
     VERSION: str = "1.0.0"
-    APP_ENV: str = Field(default="development", env="APP_ENV")
-    DEBUG: bool = Field(default=True, env="DEBUG")
+    APP_ENV: str = Field(default="development")
+    DEBUG: bool = Field(default=True)
 
     # API Settings
     API_V1_PREFIX: str = "/api/v1"
-    SECRET_KEY: str = Field(default="", env="SECRET_KEY")
+    SECRET_KEY: str = Field(default="")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
 
     @field_validator('SECRET_KEY')
@@ -96,37 +95,58 @@ class Settings(BaseSettings):
         return ["localhost", "127.0.0.1"]
 
     # Database
-    DATABASE_URL: str = Field(..., env="DATABASE_URL")
+    DATABASE_URL: str = Field(...)
 
     # Redis
-    REDIS_URL: str = Field(..., env="REDIS_URL")
+    REDIS_URL: str = Field(...)
 
     # Qdrant Vector Database
-    QDRANT_URL: str = Field(..., env="QDRANT_URL")
-    QDRANT_API_KEY: Optional[str] = Field(default=None, env="QDRANT_API_KEY")
+    QDRANT_URL: str = Field(...)
+    QDRANT_API_KEY: Optional[str] = Field(default=None)
     QDRANT_COLLECTION_NAME: str = "novellaforge_documents"
 
     # Neo4j Knowledge Graph
-    NEO4J_URI: Optional[str] = Field(default=None, env="NEO4J_URI")
-    NEO4J_USER: Optional[str] = Field(default=None, env="NEO4J_USER")
-    NEO4J_PASSWORD: Optional[str] = Field(default=None, env="NEO4J_PASSWORD")
-    NEO4J_DATABASE: Optional[str] = Field(default=None, env="NEO4J_DATABASE")
+    NEO4J_URI: Optional[str] = Field(default=None)
+    NEO4J_USER: Optional[str] = Field(default=None)
+    NEO4J_PASSWORD: Optional[str] = Field(default=None)
+    NEO4J_DATABASE: Optional[str] = Field(default=None)
 
     # ChromaDB
-    CHROMA_HOST: Optional[str] = Field(default=None, env="CHROMA_HOST")
-    CHROMA_PORT: Optional[int] = Field(default=None, env="CHROMA_PORT")
-    CHROMA_PERSIST_DIR: str = Field(default="./chromadb", env="CHROMA_PERSIST_DIR")
-    CHROMA_COLLECTION_PREFIX: str = Field(default="novellaforge", env="CHROMA_COLLECTION_PREFIX")
+    CHROMA_HOST: Optional[str] = Field(default=None)
+    CHROMA_PORT: Optional[int] = Field(default=None)
+    CHROMA_PERSIST_DIR: str = Field(default="./chromadb")
+    CHROMA_COLLECTION_PREFIX: str = Field(default="novellaforge")
 
     # DeepSeek API
-    DEEPSEEK_API_KEY: str = Field(..., env="DEEPSEEK_API_KEY")
+    DEEPSEEK_API_KEY: str = Field(...)
     DEEPSEEK_API_BASE: str = "https://api.deepseek.com/v1"
     DEEPSEEK_MODEL: str = "deepseek-chat"
     DEEPSEEK_REASONING_MODEL: str = "deepseek-reasoner"
-    DEEPSEEK_TIMEOUT: float = Field(default=300.0, env="DEEPSEEK_TIMEOUT")
-    CHAT_MAX_TOKENS: int = Field(default=4096, env="CHAT_MAX_TOKENS")
-    CHAPTER_MIN_WORDS: int = Field(default=1200, env="CHAPTER_MIN_WORDS")
-    CHAPTER_MAX_WORDS: int = Field(default=2000, env="CHAPTER_MAX_WORDS")
+    DEEPSEEK_TIMEOUT: float = Field(default=300.0)
+    CHAT_MAX_TOKENS: int = Field(default=4096)
+    CHAPTER_MIN_WORDS: int = Field(default=1200)
+    CHAPTER_MAX_WORDS: int = Field(default=2000)
+    MAX_REVISIONS: int = Field(default=3)
+    QUALITY_GATE_COHERENCE_THRESHOLD: float = Field(default=6.5)
+    QUALITY_GATE_SCORE_THRESHOLD: float = Field(default=7.5)
+    PLAN_REASONING_ENABLED: bool = Field(default=True)
+    PLAN_REASONING_FIRST_CHAPTERS: int = Field(default=3)
+    PLAN_REASONING_INTERVAL: int = Field(default=10)
+    PLAN_REASONING_KEYWORDS: str = Field(default="critical,twist,finale")
+    WRITE_PARALLEL_BEATS: bool = Field(default=True)
+    WRITE_PARTIAL_REVISION: bool = Field(default=True)
+    WRITE_PREVIOUS_BEATS_MAX_CHARS: int = Field(default=1500)
+    WRITE_EARLY_STOP_RATIO: float = Field(default=1.05)
+    WRITE_MIN_BEAT_WORDS: int = Field(default=120)
+    WRITE_TOKENS_PER_WORD: float = Field(default=1.8)
+    WRITE_MAX_TOKENS: int = Field(default=2400)
+    MEMORY_CONTEXT_MAX_CHARS: int = Field(default=4000)
+    RAG_CONTEXT_MAX_CHARS: int = Field(default=4000)
+    STYLE_CONTEXT_MAX_CHARS: int = Field(default=2000)
+    STORY_BIBLE_MAX_CHARS: int = Field(default=2500)
+    VALIDATION_MAX_CHARS: int = Field(default=12000)
+    VALIDATION_ALLOW_FALLBACK: bool = Field(default=False)
+    CRITIC_MAX_CHARS: int = Field(default=6000)
 
     # Embeddings
     EMBEDDING_MODEL: str = "BAAI/bge-m3"
@@ -138,8 +158,14 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = "./uploads"
 
     # Celery
-    CELERY_BROKER_URL: str = Field(default="", env="REDIS_URL")
-    CELERY_RESULT_BACKEND: str = Field(default="", env="REDIS_URL")
+    CELERY_BROKER_URL: str = Field(
+        default="",
+        validation_alias=AliasChoices("CELERY_BROKER_URL", "REDIS_URL"),
+    )
+    CELERY_RESULT_BACKEND: str = Field(
+        default="",
+        validation_alias=AliasChoices("CELERY_RESULT_BACKEND", "REDIS_URL"),
+    )
 
     # RAG Settings
     RAG_CHUNK_SIZE: int = 512
@@ -150,12 +176,14 @@ class Settings(BaseSettings):
     RATE_LIMIT_PER_MINUTE: int = 60
 
     # Logging
-    LOG_LEVEL: str = Field(default="INFO", env="LOG_LEVEL")
+    LOG_LEVEL: str = Field(default="INFO")
 
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        case_sensitive=True,
+        extra="ignore",
+    )
 
 
 # Create settings instance
-settings = Settings()
+settings = Settings()  # type: ignore[call-arg]

@@ -59,6 +59,16 @@ class DummyPipeline(WritingPipeline):
         text = ("word " * (target_words - 1)) + "word"
         return {"chapter_text": text}
 
+    async def validate_continuity(self, state):
+        return {
+            "continuity_validation": {
+                "severe_issues": [],
+                "minor_issues": [],
+                "coherence_score": 9.0,
+                "blocking": False,
+            }
+        }
+
     async def critic(self, state):
         return {
             "critique_score": 9.5,

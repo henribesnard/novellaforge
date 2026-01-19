@@ -37,6 +37,23 @@ class ChapterCritique(BaseModel):
     pacing_ok: bool = False
 
 
+class PlotPointValidation(BaseModel):
+    covered_points: List[str] = Field(default_factory=list)
+    missing_points: List[str] = Field(default_factory=list)
+    forbidden_violations: List[str] = Field(default_factory=list)
+    coverage_score: float = 0.0
+    explanation: Optional[str] = None
+
+
+class ContinuityValidation(BaseModel):
+    severe_issues: List[Dict[str, Any]] = Field(default_factory=list)
+    minor_issues: List[Dict[str, Any]] = Field(default_factory=list)
+    coherence_score: float = 0.0
+    blocking: bool = False
+    plot_point_validation: Optional[PlotPointValidation] = None
+    graph_issues: List[Dict[str, Any]] = Field(default_factory=list)
+
+
 class ChapterGenerationResponse(BaseModel):
     success: bool
     chapter_title: str
@@ -47,6 +64,7 @@ class ChapterGenerationResponse(BaseModel):
     critique: Optional[ChapterCritique] = None
     needs_review: bool = True
     continuity_alerts: List[str] = Field(default_factory=list)
+    continuity_validation: Optional[ContinuityValidation] = None
     retrieved_chunks: List[str] = Field(default_factory=list)
 
 
@@ -59,3 +77,5 @@ class ChapterApprovalResponse(BaseModel):
     document_id: str
     status: str
     summary: Optional[str] = None
+    rag_updated: bool = False
+    rag_update_error: Optional[str] = None

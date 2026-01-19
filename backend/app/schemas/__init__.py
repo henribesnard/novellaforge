@@ -10,7 +10,9 @@ from app.schemas.project import (
     ProjectCreate,
     ProjectUpdate,
     ProjectResponse,
-    ProjectList
+    ProjectList,
+    ContradictionResolution,
+    ContradictionIntentionalRequest,
 )
 from app.schemas.document import (
     DocumentCreate,
@@ -39,6 +41,25 @@ from app.schemas.instruction import (
     InstructionList,
 )
 from app.schemas.token import Token, TokenPayload
+from app.schemas.story_bible import (
+    StoryBible,
+    StoryBibleDraftValidationRequest,
+    StoryBibleGlossary,
+    StoryBibleValidationResponse,
+    StoryBibleViolation,
+    WorldRule,
+    TimelineEvent,
+    GlossaryTerm,
+    GlossaryPlace,
+    GlossaryFaction,
+    CoreTheme,
+    EstablishedFact,
+)
+from app.schemas.agents import (
+    ConsistencyChapterRequest,
+    ConsistencyProjectRequest,
+    ConsistencyFixesRequest,
+)
 
 __all__ = [
     # User
@@ -52,6 +73,8 @@ __all__ = [
     "ProjectUpdate",
     "ProjectResponse",
     "ProjectList",
+    "ContradictionResolution",
+    "ContradictionIntentionalRequest",
     # Document
     "DocumentCreate",
     "DocumentUpdate",
@@ -78,4 +101,21 @@ __all__ = [
     # Token
     "Token",
     "TokenPayload",
+    # Story Bible
+    "StoryBible",
+    "StoryBibleDraftValidationRequest",
+    "StoryBibleGlossary",
+    "StoryBibleValidationResponse",
+    "StoryBibleViolation",
+    "WorldRule",
+    "TimelineEvent",
+    "GlossaryTerm",
+    "GlossaryPlace",
+    "GlossaryFaction",
+    "CoreTheme",
+    "EstablishedFact",
+    # Agents
+    "ConsistencyChapterRequest",
+    "ConsistencyProjectRequest",
+    "ConsistencyFixesRequest",
 ]
