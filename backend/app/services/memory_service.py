@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 import logging
 
@@ -25,6 +25,9 @@ chromadb: Optional[Any] = chromadb_module
 
 
 logger = logging.getLogger(__name__)
+
+_NEO4J_CACHE = {}
+_NEO4J_CACHE_TTL = timedelta(minutes=10)
 
 
 class MemoryService:
@@ -331,9 +334,15 @@ class MemoryService:
     def detect_character_contradictions(
         self, character_name: str, project_id: Optional[str] = None
     ) -> List[Dict[str, Any]]:
-        """Detect contradictions in character status history."""
+        """Detect contradictions in character status history with caching."""
+        cache_key = f"contradictions:{project_id}:{character_name}"
+        cached = _NEO4J_CACHE.get(cache_key)
+        if cached and datetime.utcnow() - cached["timestamp"] < _NEO4J_CACHE_TTL:
+            return cached["result"]
+
         if not self.neo4j_driver:
             return []
+        
         database = settings.NEO4J_DATABASE or None
         if project_id:
             match_clause = "MATCH (c:Character {name: $name, project_id: $project_id})"
@@ -360,9 +369,21 @@ class MemoryService:
         params = {"name": character_name}
         if project_id:
             params["project_id"] = project_id
-        with self.neo4j_driver.session(database=database) as session:
-            result = session.run(query, **params)
-            return [dict(record["issue"]) for record in result]
+            
+        result_list = []
+        try:
+            with self.neo4j_driver.session(database=database) as session:
+                result = session.run(query, **params)
+                result_list = [dict(record["issue"]) for record in result]
+        except Exception as e:
+            logger.error(f"Error checking contradictions for {character_name}: {e}")
+            return []
+
+        _NEO4J_CACHE[cache_key] = {
+            "result": result_list,
+            "timestamp": datetime.utcnow()
+        }
+        return result_list
 
     def query_relationship_evolution(
         self, char_a: str, char_b: str, project_id: Optional[str] = None

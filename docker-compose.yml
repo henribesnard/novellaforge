@@ -87,6 +87,8 @@ services:
       dockerfile: Dockerfile
     container_name: novellaforge-backend
     restart: unless-stopped
+    env_file:
+      - .env
     ports:
       - "8002:8000"
     environment:
@@ -110,8 +112,6 @@ services:
       CHROMA_PORT: ${CHROMA_PORT:-8000}
       CHROMA_PERSIST_DIR: ${CHROMA_PERSIST_DIR:-/app/chromadb}
       CHROMA_COLLECTION_PREFIX: ${CHROMA_COLLECTION_PREFIX:-novellaforge}
-      # DeepSeek API
-      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       # App Settings
       APP_ENV: ${APP_ENV:-development}
       DEBUG: ${DEBUG:-true}
@@ -145,6 +145,8 @@ services:
       dockerfile: Dockerfile
     container_name: novellaforge-celery-worker
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
       # Database
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-novellaforge}:${POSTGRES_PASSWORD:-change_this_password}@postgres:5432/${POSTGRES_DB:-novellaforge_db}
@@ -163,8 +165,6 @@ services:
       CHROMA_PORT: ${CHROMA_PORT:-8000}
       CHROMA_PERSIST_DIR: ${CHROMA_PERSIST_DIR:-/app/chromadb}
       CHROMA_COLLECTION_PREFIX: ${CHROMA_COLLECTION_PREFIX:-novellaforge}
-      # DeepSeek API
-      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       # App Settings
       APP_ENV: ${APP_ENV:-development}
       SECRET_KEY: ${SECRET_KEY}
@@ -189,6 +189,8 @@ services:
       dockerfile: Dockerfile
     container_name: novellaforge-celery-beat
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
       # Database
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-novellaforge}:${POSTGRES_PASSWORD:-change_this_password}@postgres:5432/${POSTGRES_DB:-novellaforge_db}
@@ -207,8 +209,6 @@ services:
       CHROMA_PORT: ${CHROMA_PORT:-8000}
       CHROMA_PERSIST_DIR: ${CHROMA_PERSIST_DIR:-/app/chromadb}
       CHROMA_COLLECTION_PREFIX: ${CHROMA_COLLECTION_PREFIX:-novellaforge}
-      # DeepSeek API
-      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       # App Settings
       APP_ENV: ${APP_ENV:-development}
       SECRET_KEY: ${SECRET_KEY}

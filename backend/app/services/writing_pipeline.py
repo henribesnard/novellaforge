@@ -19,11 +19,12 @@ from app.core.config import settings
 from app.models.document import Document, DocumentType
 from app.models.project import Project
 from app.schemas.document import DocumentCreate, DocumentUpdate
-from app.services.context_service import ProjectContextService
+from app.services.context_service import ProjectContextService, SmartContextTruncator
 from app.services.document_service import DocumentService
 from app.services.llm_client import DeepSeekClient
 from app.services.rag_service import RagService
 from app.services.memory_service import MemoryService
+from app.services.cache_service import CacheService
 
 
 logger = logging.getLogger(__name__)
@@ -88,6 +89,7 @@ class WritingPipeline:
         self.context_service = ProjectContextService(db)
         self.rag_service = RagService()
         self.memory_service = MemoryService()
+        self.cache_service = CacheService()
         self.llm_client = DeepSeekClient()
         self.graph = self._build_graph()
 
@@ -183,12 +185,29 @@ class WritingPipeline:
     async def retrieve_context(self, state: NovelState) -> Dict[str, Any]:
         start = time.perf_counter()
         try:
+            metadata = state.get("project_context", {}).get("project", {}).get("metadata", {})
+            chapter_index = state.get("chapter_index") or 1
+            
+            # Composite key for cache (integrity + relevance)
+            cache_identity = {"metadata": metadata, "chapter_index": chapter_index}
+            
+            # 1. Try to get cached memory context
+            memory_context = await self.cache_service.get_memory_context(cache_identity)
+            if not memory_context:
+                # Use Smart Truncation
+                continuity = metadata.get("continuity", {})
+                memory_context = SmartContextTruncator.truncate_memory_context(
+                    continuity,
+                    max_chars=settings.MEMORY_CONTEXT_MAX_CHARS,
+                    current_chapter=chapter_index
+                )
+                # Async update cache
+                await self.cache_service.set_memory_context(cache_identity, memory_context)
+
+            if memory_context:
+                logger.debug("Memory context preview: %s...", memory_context[:500])
+
             if not state.get("use_rag", True):
-                metadata = state.get("project_context", {}).get("project", {}).get("metadata", {})
-                memory_context = self._get_cached_memory_context(metadata)
-                memory_context = self._truncate_text(memory_context, settings.MEMORY_CONTEXT_MAX_CHARS)
-                if memory_context:
-                    logger.debug("Memory context preview: %s...", memory_context[:500])
                 return {"retrieved_chunks": [], "style_chunks": [], "memory_context": memory_context}
 
             if state.get("reindex_documents"):
@@ -196,16 +215,17 @@ class WritingPipeline:
                 await self.rag_service.aindex_documents(state["project_id"], documents, clear_existing=True)
 
             query = f"{state.get('chapter_title', '')}\n{state.get('chapter_summary', '')}".strip()
-            chunks = await self.rag_service.aretrieve(
-                project_id=state["project_id"],
-                query=query,
-                top_k=settings.RAG_TOP_K,
-            )
-            metadata = state.get("project_context", {}).get("project", {}).get("metadata", {})
-            memory_context = self._get_cached_memory_context(metadata)
-            memory_context = self._truncate_text(memory_context, settings.MEMORY_CONTEXT_MAX_CHARS)
-            if memory_context:
-                logger.debug("Memory context preview: %s...", memory_context[:500])
+            
+            # 2. Try to get cached RAG results
+            chunks = await self.cache_service.get_rag_results(query, str(state["project_id"]))
+            if chunks is None:
+                chunks = await self.rag_service.aretrieve(
+                    project_id=state["project_id"],
+                    query=query,
+                    top_k=settings.RAG_TOP_K,
+                )
+                await self.cache_service.set_rag_results(query, str(state["project_id"]), chunks)
+
             style_chunks = self.memory_service.retrieve_style_memory(
                 str(state["project_id"]),
                 query,
@@ -225,6 +245,16 @@ class WritingPipeline:
             if state.get("current_plan"):
                 return {}
 
+            # Check for pregenerated plans
+            chapter_index = state.get("chapter_index") or 1
+            project_meta = state.get("project_context", {}).get("project", {}).get("metadata", {})
+            pregenerated_plans = project_meta.get("pregenerated_plans", {})
+            if isinstance(pregenerated_plans, dict) and str(chapter_index) in pregenerated_plans:
+                pregenerated = pregenerated_plans[str(chapter_index)]
+                if pregenerated:
+                    logger.info(f"Using pregenerated plan for chapter {chapter_index}")
+                    return {"current_plan": pregenerated, "debug_reasoning": ["pregenerated"]}
+
             project = state.get("project_context", {}).get("project", {})
             project_data: Dict[str, Any] = project if isinstance(project, dict) else {}
             concept_raw = project_data.get("concept")
@@ -234,7 +264,6 @@ class WritingPipeline:
             summaries_raw = project_data.get("recent_chapter_summaries")
             summaries = summaries_raw if isinstance(summaries_raw, list) else []
             summary_block = "\n".join([f"- {item}" for item in summaries][-5:]) or "aucun"
-            chapter_index = state.get("chapter_index") or 1
             memory_context = self._truncate_text(state.get("memory_context", ""), settings.MEMORY_CONTEXT_MAX_CHARS)
             plan_entry = self._find_plan_entry(plan, chapter_index)
             if self._plan_entry_has_details(plan_entry):
@@ -464,6 +493,28 @@ class WritingPipeline:
             result = {"chapter_text": content, "beat_texts": updated}
             self._log_duration("write_chapter", start)
             return result
+
+        # Distributed beats via Celery (true parallelism across workers)
+        if settings.WRITE_DISTRIBUTED_BEATS and len(beats) > 1:
+            try:
+                from app.tasks.generation_tasks import generate_beats_distributed
+                distributed_result = await generate_beats_distributed(
+                    beats=beats,
+                    base_prompt=base_prompt + f"\n{beat_outline}\n",
+                    target_word_count=target_word_count,
+                    min_beat_words=min_beat_words,
+                )
+                if distributed_result.get("chapter_text"):
+                    result = {
+                        "chapter_text": distributed_result["chapter_text"],
+                        "beat_texts": distributed_result.get("beat_texts", []),
+                    }
+                    self._log_duration("write_chapter.distributed", start)
+                    return result
+                # Fall through to parallel if distributed failed
+                logger.warning("Distributed beat generation failed, falling back to parallel")
+            except Exception as e:
+                logger.warning(f"Distributed beats unavailable: {e}, falling back to parallel")
 
         if settings.WRITE_PARALLEL_BEATS and len(beats) > 1:
             tasks = []
@@ -895,10 +946,9 @@ class WritingPipeline:
         rag_updated = False
         rag_error = None
         try:
-            await self.rag_service.aindex_documents(
+            await self.rag_service.aupdate_document(
                 document.project_id,
-                [document],
-                clear_existing=False,
+                document,
             )
             rag_updated = True
         except Exception as exc:

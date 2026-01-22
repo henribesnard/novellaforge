@@ -150,20 +150,53 @@ function ProjectCard({ project, onReload, onOpenProject, onDeleteRequest }: Proj
   const [synopsisFetchAttempted, setSynopsisFetchAttempted] = useState(false)
   const [synopsisStatus, setSynopsisStatus] = useState<string>(synopsisEntry?.status || 'draft')
   const skipResetRef = useRef<string | null>(null)
-  const generatedDocs = documents
-    .map((doc) => {
-      const meta = (doc.metadata || {}) as Record<string, any>
-      const idx = Number(meta.chapter_index ?? doc.order_index ?? 0)
-      return idx
-        ? {
-            index: idx,
-            title: doc.title || `Chapitre ${idx}`,
-            status: (meta.status || meta.chapter_status || doc.status || 'draft') as string,
-            doc,
-          }
-        : null
-    })
-    .filter(Boolean) as { index: number; title: string; status: string; doc: Document }[]
+  const generatedDocs = Array.from(
+    documents
+      .map((doc) => {
+        const meta = (doc.metadata || {}) as Record<string, any>
+        const idx = Number(meta.chapter_index ?? doc.order_index ?? 0)
+        if (!idx) {
+          return null
+        }
+        const status = String(meta.status || meta.chapter_status || 'draft').toLowerCase()
+        const updatedAt = Date.parse(doc.updated_at || doc.created_at || '')
+        return {
+          index: idx,
+          title: doc.title || `Chapitre ${idx}`,
+          status,
+          updatedAt: Number.isNaN(updatedAt) ? 0 : updatedAt,
+          doc,
+        }
+      })
+      .filter(Boolean)
+      .reduce((acc, entry) => {
+        if (!entry) {
+          return acc
+        }
+        const current = acc.get(entry.index)
+        if (!current) {
+          acc.set(entry.index, entry)
+          return acc
+        }
+        const currentApproved = current.status === 'approved'
+        const entryApproved = entry.status === 'approved'
+        if (entryApproved && !currentApproved) {
+          acc.set(entry.index, entry)
+          return acc
+        }
+        if (entryApproved === currentApproved && entry.updatedAt > current.updatedAt) {
+          acc.set(entry.index, entry)
+        }
+        return acc
+      }, new Map<number, {
+        index: number
+        title: string
+        status: string
+        updatedAt: number
+        doc: Document
+      }>())
+      .values()
+  )
   const generatedIndices = generatedDocs.map((d) => d.index)
   const nextPlanChapter = (planPayload?.chapters || [])
     .sort((a, b) => Number(a.index) - Number(b.index))
@@ -174,11 +207,11 @@ function ProjectCard({ project, onReload, onOpenProject, onDeleteRequest }: Proj
       .map((c) => ({ value: String(c.index), label: `${c.index}. ${c.title}` })),
     ...(nextPlanChapter
       ? [
-          {
-            value: String(nextPlanChapter.index),
-            label: `${nextPlanChapter.index}. ${nextPlanChapter.title || `Chapitre ${nextPlanChapter.index}`} (a generer)`,
-          },
-        ]
+        {
+          value: String(nextPlanChapter.index),
+          label: `${nextPlanChapter.index}. ${nextPlanChapter.title || `Chapitre ${nextPlanChapter.index}`} (a generer)`,
+        },
+      ]
       : []),
   ]
   const pendingIndex = planPayload?.chapters?.find((chapter) => chapter.status !== 'approved')?.index
@@ -189,20 +222,34 @@ function ProjectCard({ project, onReload, onOpenProject, onDeleteRequest }: Proj
       skipResetRef.current = null
       return
     }
-    setChapterIndex(pendingIndex ? String(pendingIndex) : '')
+    // Only update index if we don't have one or if pendingIndex changed significantly
+    if (pendingIndex && !chapterIndex) {
+      setChapterIndex(String(pendingIndex))
+    }
+
+    // Do NOT reset documents here. They are loaded independently and should persist.
+    // setDocuments([]) 
+
+    // Only reset detailed views, but keep main context
     setChapterPreview(null)
     setChapterView(null)
     setShowChapter(false)
     setShowPlan(false)
     setShowSynopsis(Boolean(initialSynopsisText))
     setActionError('')
-    setDocuments([])
+
+    // Reset all loading states when project changes
+    setSynopsisLoading(false)
+    setPlanLoading(false)
+    setChapterGenerateLoading(false)
+    setChapterViewLoading(false)
+    setChapterApproveLoading(false)
     setProjectDownloadLoading(false)
     setChapterDownloadLoading(false)
     setSynopsisText(initialSynopsisText)
     setSynopsisFetchAttempted(false)
     setSynopsisStatus(synopsisEntry?.status || 'draft')
-  }, [project.id, pendingIndex, planStatus, planPayload, initialSynopsisText])
+  }, [project.id, pendingIndex, planStatus, initialSynopsisText])
 
   useEffect(() => {
     if (!synopsisEntry || initialSynopsisText || synopsisFetchAttempted) {
@@ -215,9 +262,15 @@ function ProjectCard({ project, onReload, onOpenProject, onDeleteRequest }: Proj
   }, [synopsisEntry, initialSynopsisText, synopsisFetchAttempted, project.id])
 
   const loadDocuments = async () => {
-    const docs = await getDocuments(project.id)
-    setDocuments(docs)
-    return docs
+    try {
+      const docs = await getDocuments(project.id)
+      setDocuments(docs)
+      return docs
+    } catch (error: any) {
+      console.error('Failed to load documents:', error)
+      setActionError(error?.message || 'Erreur lors du chargement des documents.')
+      return []
+    }
   }
 
   useEffect(() => {
@@ -444,6 +497,7 @@ function ProjectCard({ project, onReload, onOpenProject, onDeleteRequest }: Proj
         return Number(indexValue) === chapterNumber
       }) || null
       setChapterView(chapterDoc)
+      setChapterPreview(null)
       setShowChapter(true)
       if (!chapterDoc) {
         setActionError('Ce chapitre n\'est pas encore genere.')
@@ -500,7 +554,7 @@ function ProjectCard({ project, onReload, onOpenProject, onDeleteRequest }: Proj
   const selectedChapterDoc = generatedDocs.find((d) => d.index === Number(chapterIndex))?.doc || null
   const selectedChapterStatus = (() => {
     const meta = (selectedChapterDoc?.metadata || {}) as Record<string, any>
-    return (meta.status || meta.chapter_status || selectedChapterDoc?.status || '').toLowerCase()
+    return (meta.status || meta.chapter_status || '').toLowerCase()
   })()
   const planChapterStatus = (planPayload?.chapters || []).find(
     (c) => Number(c.index) === Number(chapterIndex)
@@ -726,7 +780,13 @@ function ProjectCard({ project, onReload, onOpenProject, onDeleteRequest }: Proj
             <Select
               label="Numero du chapitre"
               value={chapterIndex}
-              onChange={(event) => setChapterIndex(event.target.value)}
+              onChange={(event) => {
+                setChapterIndex(event.target.value)
+                // Reset chapter display states when changing selection
+                setChapterPreview(null)
+                setChapterView(null)
+                setShowChapter(false)
+              }}
               options={[{ value: '', label: 'Choisir un chapitre' }, ...chapterOptions]}
             />
             <div className="flex flex-wrap gap-2">

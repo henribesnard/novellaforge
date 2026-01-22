@@ -392,7 +392,11 @@ async def test_approve_chapter_updates_rag(monkeypatch):
             self.calls = []
 
         async def aindex_documents(self, project_id, documents, clear_existing=True):
-            self.calls.append((project_id, documents, clear_existing))
+            self.calls.append(("index", project_id, documents, clear_existing))
+            return 1
+
+        async def aupdate_document(self, project_id, document):
+            self.calls.append(("update", project_id, document))
             return 1
 
     pipeline = WritingPipeline.__new__(WritingPipeline)
@@ -413,9 +417,11 @@ async def test_approve_chapter_updates_rag(monkeypatch):
     assert result.get("rag_updated") is True
     assert result.get("rag_update_error") is None
     assert pipeline.rag_service.calls
-    project_id, documents, clear_existing = pipeline.rag_service.calls[0]
+    assert pipeline.rag_service.calls
+    call_type, project_id, document = pipeline.rag_service.calls[0]
+    assert call_type == "update"
     assert project_id == doc.project_id
-    assert clear_existing is False
+    assert document == doc
 
 
 @pytest.mark.asyncio
@@ -559,6 +565,20 @@ async def test_retrieve_context_returns_memory_when_rag_disabled():
 
     pipeline.memory_service = DummyMemoryService()
 
+    class DummyCacheService:
+        async def get_memory_context(self, metadata):
+            return None
+        async def set_memory_context(self, metadata, context):
+            pass
+        async def get_rag_results(self, query, project_id):
+            return None
+        async def set_rag_results(self, query, project_id, results):
+            pass
+
+    pipeline.cache_service = DummyCacheService()
+
+    monkeypatch.setattr(writing_pipeline.SmartContextTruncator, "truncate_memory_context", lambda *args, **kwargs: "context")
+
     result = await pipeline.retrieve_context(
         {
             "use_rag": False,
@@ -584,6 +604,10 @@ def test_pipeline_init_builds_graph(monkeypatch):
         def __init__(self):
             self.ready = True
 
+    class DummyCacheService:
+        def __init__(self):
+            self.ready = True
+
     class DummyLLM:
         def __init__(self):
             self.ready = True
@@ -591,6 +615,7 @@ def test_pipeline_init_builds_graph(monkeypatch):
     monkeypatch.setattr(writing_pipeline, "ProjectContextService", DummyContextService)
     monkeypatch.setattr(writing_pipeline, "RagService", DummyRagService)
     monkeypatch.setattr(writing_pipeline, "MemoryService", DummyMemoryService)
+    monkeypatch.setattr(writing_pipeline, "CacheService", DummyCacheService)
     monkeypatch.setattr(writing_pipeline, "DeepSeekClient", DummyLLM)
 
     pipeline = writing_pipeline.WritingPipeline(SimpleNamespace())
@@ -625,10 +650,27 @@ async def test_retrieve_context_with_rag(monkeypatch):
     pipeline.rag_service = DummyRagService()
     pipeline.memory_service = DummyMemoryService()
 
+    class DummyCacheService:
+        async def get_memory_context(self, metadata):
+            return None
+        async def set_memory_context(self, metadata, context):
+            pass
+        async def get_rag_results(self, query, project_id):
+            return None
+        async def set_rag_results(self, query, project_id, results):
+            pass
+
+    pipeline.cache_service = DummyCacheService()
+
+    async def fake_load(project_id):
+        return []
+
     async def fake_load(project_id):
         return []
 
     pipeline._load_project_documents = fake_load
+
+    monkeypatch.setattr(writing_pipeline.SmartContextTruncator, "truncate_memory_context", lambda *args, **kwargs: "context")
 
     result = await pipeline.retrieve_context(
         {

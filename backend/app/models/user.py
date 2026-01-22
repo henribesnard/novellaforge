@@ -15,7 +15,6 @@ from app.db.base import Base
 
 if TYPE_CHECKING:
     from app.models.project import Project
-    from app.models.chat import ChatMessage
 
 
 def utc_now():
@@ -59,11 +58,6 @@ class User(Base):
     projects: Mapped[list["Project"]] = relationship(
         "Project",
         back_populates="owner",
-        cascade="all, delete-orphan",
-    )
-    chat_messages: Mapped[list["ChatMessage"]] = relationship(
-        "ChatMessage",
-        back_populates="user",
         cascade="all, delete-orphan",
     )
 

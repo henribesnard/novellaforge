@@ -188,6 +188,8 @@ class DocumentService:
         if "metadata" in update_data:
             document.document_metadata = update_data.pop("metadata") or {}
         for field, value in update_data.items():
+            if value is None and field in {"title", "order_index"}:
+                continue
             setattr(document, field, value)
 
         # Recalculate word count if content updated

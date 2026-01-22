@@ -191,3 +191,28 @@ async def get_current_superuser(
             detail="The user doesn't have enough privileges"
         )
     return current_user
+
+
+async def get_user_from_token(token: str, db: AsyncSession) -> Optional[User]:
+    """
+    Get user from a raw JWT token string.
+
+    This is useful for WebSocket authentication where we can't use
+    the standard OAuth2 dependency injection.
+
+    Args:
+        token: JWT token string
+        db: Database session
+
+    Returns:
+        User if token is valid and user exists, None otherwise
+    """
+    token_data = decode_token(token)
+    if token_data is None or token_data.sub is None:
+        return None
+
+    user = await db.get(User, token_data.sub)
+    if user is None or not user.is_active:
+        return None
+
+    return user

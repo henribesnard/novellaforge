@@ -79,3 +79,26 @@ class ChapterApprovalResponse(BaseModel):
     summary: Optional[str] = None
     rag_updated: bool = False
     rag_update_error: Optional[str] = None
+
+
+class StreamingChapterRequest(BaseModel):
+    """Request for streaming chapter generation via WebSocket."""
+    project_id: UUID
+    chapter_id: Optional[UUID] = None
+    chapter_index: Optional[int] = Field(default=None, ge=1)
+    instruction: Optional[str] = None
+    target_word_count: Optional[int] = Field(None, ge=100)
+    use_rag: bool = True
+
+
+class PregeneratePlansRequest(BaseModel):
+    """Request to pregenerate plans for upcoming chapters."""
+    project_id: UUID
+    count: int = Field(default=5, ge=1, le=20)
+
+
+class PregeneratePlansResponse(BaseModel):
+    success: bool
+    status: str
+    chapters_to_plan: int
+    task_id: Optional[str] = None
