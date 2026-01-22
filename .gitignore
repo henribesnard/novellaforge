@@ -75,3 +75,9 @@ logs/
 *.db
 *.sqlite
 *.sqlite3
+
+# Debug output files
+backend/full_output.txt
+backend/output_debug.txt
+backend/output_v2.txt
+backend/test_output.txt

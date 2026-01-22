@@ -33,7 +33,11 @@
       "Bash(docker-compose logs:*)",
       "Bash(npx create-expo-app@latest mobile --template blank-typescript)",
       "Bash(npx expo install:*)",
-      "Bash(npm run web:*)"
+      "Bash(npm run web:*)",
+      "Bash(find:*)",
+      "Bash(git reset:*)",
+      "Bash(git restore:*)",
+      "Bash(git checkout:*)"
     ],
     "deny": [],
     "ask": []
