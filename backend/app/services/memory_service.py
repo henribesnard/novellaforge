@@ -26,6 +26,9 @@ chromadb: Optional[Any] = chromadb_module
 
 logger = logging.getLogger(__name__)
 
+OBJECT_STATUSES = ["possessed", "lost", "destroyed", "hidden", "transferred"]
+CHARACTER_LOCATIONS = ["known", "unknown", "traveling"]
+
 _NEO4J_CACHE = {}
 _NEO4J_CACHE_TTL = timedelta(minutes=10)
 
@@ -140,6 +143,351 @@ class MemoryService:
         if self._word_count(context_block) < 200:
             context_block = f"{context_block}\n\n{self._build_padding_note()}".strip()
         return context_block
+
+    def update_neo4j_objects(
+        self,
+        facts: Dict[str, Any],
+        project_id: Optional[str] = None,
+        chapter_index: Optional[int] = None,
+    ) -> None:
+        """Update Neo4j with object tracking data."""
+        if not self.neo4j_driver:
+            return
+        
+        timestamp = datetime.utcnow().isoformat()
+        database = settings.NEO4J_DATABASE or None
+        base_chapter = self._resolve_chapter_index(chapter_index)
+        
+        with self.neo4j_driver.session(database=database) as session:
+            for obj in facts.get("objects", []):
+                name = obj.get("name")
+                if not name:
+                    continue
+                
+                obj_chapter = self._resolve_chapter_index(
+                    obj.get("last_seen_chapter"), base_chapter
+                )
+                status = obj.get("status", "possessed")
+                holder = obj.get("current_holder")
+                location = obj.get("location")
+                
+                # Build status history entry
+                status_entry = []
+                if status and isinstance(obj_chapter, int):
+                    status_entry = [{
+                        "status": status,
+                        "chapter": obj_chapter,
+                        "holder": holder,
+                        "location": location,
+                        "timestamp": timestamp,
+                    }]
+                
+                params = {
+                    "name": name,
+                    "description": obj.get("description"),
+                    "status": status,
+                    "current_holder": holder,
+                    "location": location,
+                    "importance": obj.get("importance", "normal"),
+                    "magical_properties": obj.get("magical_properties"),
+                    "chapter_index": obj_chapter,
+                    "timestamp": timestamp,
+                    "status_entry": status_entry,
+                }
+                
+                if project_id:
+                    params["project_id"] = project_id
+                    session.run(
+                        """
+                        MERGE (o:Object {name: $name, project_id: $project_id})
+                        ON CREATE SET 
+                            o.created_chapter = $chapter_index,
+                            o.first_appearance = $timestamp
+                        SET 
+                            o.description = $description,
+                            o.status = $status,
+                            o.current_holder = $current_holder,
+                            o.location = $location,
+                            o.importance = $importance,
+                            o.magical_properties = $magical_properties,
+                            o.last_seen_chapter = $chapter_index,
+                            o.last_updated = $timestamp,
+                            o.project_id = $project_id,
+                            o.status_history = coalesce(o.status_history, []) + $status_entry
+                        """,
+                        **params,
+                    )
+                    
+                    # Create relationship to holder if exists
+                    if holder:
+                        session.run(
+                            """
+                            MATCH (o:Object {name: $obj_name, project_id: $project_id})
+                            MATCH (c:Character {name: $holder_name, project_id: $project_id})
+                            MERGE (c)-[r:POSSESSES]->(o)
+                            SET r.since_chapter = $chapter_index, r.updated = $timestamp
+                            """,
+                            obj_name=name,
+                            holder_name=holder,
+                            project_id=project_id,
+                            chapter_index=obj_chapter,
+                            timestamp=timestamp,
+                        )
+                else:
+                    session.run(
+                        """
+                        MERGE (o:Object {name: $name})
+                        ON CREATE SET 
+                            o.created_chapter = $chapter_index,
+                            o.first_appearance = $timestamp
+                        SET 
+                            o.description = $description,
+                            o.status = $status,
+                            o.current_holder = $current_holder,
+                            o.location = $location,
+                            o.importance = $importance,
+                            o.magical_properties = $magical_properties,
+                            o.last_seen_chapter = $chapter_index,
+                            o.last_updated = $timestamp,
+                            o.status_history = coalesce(o.status_history, []) + $status_entry
+                        """,
+                        **params,
+                    )
+
+    def check_object_availability(
+        self,
+        object_name: str,
+        chapter_index: int,
+        project_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Check if an object is available for use at a given chapter.
+        
+        Returns:
+            Dict with keys: available, status, holder, location, issue
+        """
+        if not self.neo4j_driver:
+            return {"available": True, "status": "unknown", "issue": None}
+        
+        database = settings.NEO4J_DATABASE or None
+        
+        query_base = "MATCH (o:Object {name: $name"
+        if project_id:
+            query_base += ", project_id: $project_id"
+        query_base += "}) RETURN o"
+        
+        params = {"name": object_name}
+        if project_id:
+            params["project_id"] = project_id
+        
+        with self.neo4j_driver.session(database=database) as session:
+            result = session.run(query_base, **params)
+            record = result.single()
+            
+            if not record:
+                return {"available": True, "status": "unknown", "issue": None}
+            
+            obj = dict(record["o"])
+            status = obj.get("status", "possessed")
+            holder = obj.get("current_holder")
+            location = obj.get("location")
+            lost_chapter = None
+            
+            # Check status history for lost status
+            status_history = obj.get("status_history", [])
+            for entry in status_history:
+                if entry.get("status") == "lost" and entry.get("chapter", 0) < chapter_index:
+                    # Check if found after
+                    found_after = any(
+                        e.get("status") in ("possessed", "found") 
+                        and e.get("chapter", 0) > entry.get("chapter", 0)
+                        and e.get("chapter", 0) <= chapter_index
+                        for e in status_history
+                    )
+                    if not found_after:
+                        lost_chapter = entry.get("chapter")
+                        break
+            
+            if status == "destroyed":
+                return {
+                    "available": False,
+                    "status": "destroyed",
+                    "holder": None,
+                    "location": None,
+                    "issue": f"L'objet '{object_name}' a été détruit et ne peut plus être utilisé.",
+                }
+            
+            if lost_chapter:
+                return {
+                    "available": False,
+                    "status": "lost",
+                    "holder": None,
+                    "location": location,
+                    "issue": f"L'objet '{object_name}' a été perdu au chapitre {lost_chapter} et n'a pas été retrouvé.",
+                }
+            
+            return {
+                "available": True,
+                "status": status,
+                "holder": holder,
+                "location": location,
+                "issue": None,
+            }
+
+    def update_character_locations(
+        self,
+        facts: Dict[str, Any],
+        project_id: Optional[str] = None,
+        chapter_index: Optional[int] = None,
+    ) -> None:
+        """Update character location tracking in Neo4j."""
+        if not self.neo4j_driver:
+            return
+        
+        timestamp = datetime.utcnow().isoformat()
+        database = settings.NEO4J_DATABASE or None
+        base_chapter = self._resolve_chapter_index(chapter_index)
+        
+        with self.neo4j_driver.session(database=database) as session:
+            for loc_entry in facts.get("character_locations", []):
+                char_name = loc_entry.get("character_name")
+                location = loc_entry.get("location")
+                if not char_name or not location:
+                    continue
+                
+                entry_chapter = self._resolve_chapter_index(
+                    loc_entry.get("chapter_index"), base_chapter
+                )
+                
+                location_entry = {
+                    "location": location,
+                    "chapter": entry_chapter,
+                    "timestamp": timestamp,
+                    "travel_from": loc_entry.get("travel_from"),
+                    "travel_to": loc_entry.get("travel_to"),
+                    "arrival_confirmed": loc_entry.get("arrival_confirmed", True),
+                }
+                
+                params = {
+                    "name": char_name,
+                    "current_location": location,
+                    "chapter_index": entry_chapter,
+                    "timestamp": timestamp,
+                    "location_entry": [location_entry],
+                }
+                
+                if project_id:
+                    params["project_id"] = project_id
+                    session.run(
+                        """
+                        MATCH (c:Character {name: $name, project_id: $project_id})
+                        SET 
+                            c.current_location = $current_location,
+                            c.location_updated_chapter = $chapter_index,
+                            c.location_history = coalesce(c.location_history, []) + $location_entry
+                        """,
+                        **params,
+                    )
+                else:
+                    session.run(
+                        """
+                        MATCH (c:Character {name: $name})
+                        SET 
+                            c.current_location = $current_location,
+                            c.location_updated_chapter = $chapter_index,
+                            c.location_history = coalesce(c.location_history, []) + $location_entry
+                        """,
+                        **params,
+                    )
+
+    def check_character_location_consistency(
+        self,
+        character_name: str,
+        required_location: str,
+        chapter_index: int,
+        project_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Check if a character can plausibly be at a location.
+        
+        Returns:
+            Dict with keys: consistent, current_location, last_known_chapter, issue
+        """
+        if not self.neo4j_driver:
+            return {"consistent": True, "issue": None}
+        
+        database = settings.NEO4J_DATABASE or None
+        
+        query_base = "MATCH (c:Character {name: $name"
+        if project_id:
+            query_base += ", project_id: $project_id"
+        query_base += "}) RETURN c"
+        
+        params = {"name": character_name}
+        if project_id:
+            params["project_id"] = project_id
+        
+        with self.neo4j_driver.session(database=database) as session:
+            result = session.run(query_base, **params)
+            record = result.single()
+            
+            if not record:
+                return {"consistent": True, "issue": None}
+            
+            char = dict(record["c"])
+            current_location = char.get("current_location")
+            location_chapter = char.get("location_updated_chapter")
+            
+            if not current_location:
+                return {"consistent": True, "issue": None}
+            
+            # If same location, all good
+            if current_location.lower() == required_location.lower():
+                return {
+                    "consistent": True,
+                    "current_location": current_location,
+                    "last_known_chapter": location_chapter,
+                    "issue": None,
+                }
+            
+            # Check if there's a travel entry
+            location_history = char.get("location_history", [])
+            travel_found = any(
+                entry.get("travel_to", "").lower() == required_location.lower()
+                and entry.get("chapter", 0) <= chapter_index
+                for entry in location_history
+            )
+            
+            if travel_found:
+                return {
+                    "consistent": True,
+                    "current_location": required_location,
+                    "last_known_chapter": chapter_index,
+                    "issue": None,
+                }
+            
+            # Calculate chapter gap
+            chapter_gap = chapter_index - (location_chapter or 0)
+            
+            # Allow some tolerance (1-2 chapters could include implicit travel)
+            if chapter_gap <= 2:
+                return {
+                    "consistent": True,
+                    "current_location": current_location,
+                    "last_known_chapter": location_chapter,
+                    "issue": None,
+                    "warning": f"Voyage implicite de {current_location} à {required_location}",
+                }
+            
+            return {
+                "consistent": False,
+                "current_location": current_location,
+                "last_known_chapter": location_chapter,
+                "issue": (
+                    f"'{character_name}' était à '{current_location}' au chapitre {location_chapter}. "
+                    f"Aucun voyage vers '{required_location}' n'a été mentionné."
+                ),
+            }
 
     def update_neo4j(
         self,
@@ -304,6 +652,10 @@ class MemoryService:
                         "e.unresolved_threads = $unresolved_threads, e.unresolved = $unresolved",
                         **params,
                     )
+        
+        # Update objects and character locations
+        self.update_neo4j_objects(facts, project_id, chapter_index)
+        self.update_character_locations(facts, project_id, chapter_index)
 
     def query_character_evolution(
         self, character_name: str, project_id: Optional[str] = None
@@ -527,7 +879,15 @@ class MemoryService:
         return self._empty_facts()
 
     def _empty_facts(self) -> Dict[str, Any]:
-        return {"summary": "", "characters": [], "locations": [], "relations": [], "events": []}
+        return {
+            "summary": "", 
+            "characters": [], 
+            "locations": [], 
+            "relations": [], 
+            "events": [], 
+            "objects": [], 
+            "character_locations": []
+        }
 
     def _normalize_facts_payload(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         return {
@@ -536,6 +896,8 @@ class MemoryService:
             "locations": self._ensure_list(payload.get("locations")),
             "relations": self._ensure_list(payload.get("relations")),
             "events": self._ensure_list(payload.get("events")),
+            "objects": self._ensure_list(payload.get("objects")),
+            "character_locations": self._ensure_list(payload.get("character_locations")),
         }
 
     def _ensure_list(self, value: Any) -> List[Dict[str, Any]]:
@@ -567,13 +929,18 @@ class MemoryService:
         return (
             "Tu es un assistant de coherence narrative. Reponds en francais uniquement.\n"
             "Extrait les faits de continuite en JSON strict avec les cles: summary, characters, locations, "
-            "relations, events. Utilise des cles snake_case ASCII. Si une info manque, laisse le champ vide.\n"
+            "relations, events, objects, character_locations.\n"
+            "Utilise des cles snake_case ASCII. Si une info manque, laisse le champ vide.\n\n"
             "characters: liste de {name, role, status, current_state, motivations, traits, goals, arc_stage, "
             "last_seen_chapter, relationships}\n"
             "locations: liste de {name, description, rules, timeline_markers, atmosphere, last_mentioned_chapter}\n"
             "relations: liste de {from, to, type, detail, start_chapter, current_state, evolution}\n"
             "events: liste de {name, summary, chapter_index, time_reference, impact, unresolved_threads}\n"
-            "motivations, traits, goals, relationships, rules, timeline_markers, unresolved_threads doivent etre des listes.\n"
+            "objects: liste de {name, description, status, current_holder, location, "
+            "lost_at_chapter, found_at_chapter, importance, magical_properties}\n"
+            "character_locations: liste de {character_name, location, chapter_index, "
+            "travel_from, travel_to, arrival_confirmed}\n\n"
+            "status pour objects: possessed, lost, destroyed, hidden, transferred\n"
             "Retourne uniquement le JSON.\n\n"
             f"Chapitre:\n{chapter_text}"
         )
@@ -593,6 +960,9 @@ class MemoryService:
         merged["events"] = self._merge_events(
             current.get("events", []), incoming.get("events", [])
         )
+        # Note: objects and character_locations are currently not merged deeply in memory context 
+        # but are tracked in Neo4j. We can simply extend the list or pick the latest for context block if needed.
+        # For now, we mainly rely on Neo4j for these.
         return merged
 
     def _merge_summary(self, current: Optional[str], incoming: Optional[str]) -> str:

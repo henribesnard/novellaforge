@@ -179,6 +179,37 @@ class Settings(BaseSettings):
     # Logging
     LOG_LEVEL: str = Field(default="INFO")
 
+    # Coherence Settings - Phase 2: Mémoire Avancée
+    RECURSIVE_MEMORY_ENABLED: bool = Field(default=True)
+    RECURSIVE_MEMORY_RECENT_CHAPTERS: int = Field(default=5)
+    RECURSIVE_MEMORY_ARC_SUMMARY_WORDS: int = Field(default=500)
+    RECURSIVE_MEMORY_GLOBAL_SYNOPSIS_WORDS: int = Field(default=1000)
+
+    CHEKHOV_TRACKER_ENABLED: bool = Field(default=True)
+    CHEKHOV_MAX_UNRESOLVED_CHAPTERS: int = Field(default=15)
+    CHEKHOV_URGENCY_THRESHOLD: int = Field(default=7)
+
+    # Coherence Settings - Phase 3: Qualité Narrative
+    VOICE_ANALYZER_ENABLED: bool = Field(default=True)
+    VOICE_CONSISTENCY_THRESHOLD: float = Field(default=0.75)
+    VOICE_MIN_DIALOGUES_FOR_ANALYSIS: int = Field(default=5)
+
+    CHARACTER_DRIFT_ENABLED: bool = Field(default=True)
+    CHARACTER_DRIFT_THRESHOLD: float = Field(default=0.6)
+
+    POV_VALIDATOR_ENABLED: bool = Field(default=True)
+    POV_DEFAULT_TYPE: str = Field(default="limited")
+
+    # Coherence Settings - Phase 4: Features Avancées
+    SEMANTIC_VALIDATOR_ENABLED: bool = Field(default=True)
+    SEMANTIC_CONFLICT_THRESHOLD: float = Field(default=0.8)
+
+    FACT_PROMOTION_THRESHOLD: int = Field(default=3)
+    FACT_PROMOTION_SCHEDULE_HOURS: int = Field(default=24)
+
+    # Intentional Inconsistencies
+    INTENTIONAL_INCONSISTENCY_ENABLED: bool = Field(default=True)
+
     model_config = SettingsConfigDict(
         env_file=".env",
         case_sensitive=True,

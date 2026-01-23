@@ -15,6 +15,47 @@ class ConsistencyAnalyst(BaseAgent):
         super().__init__()
         self.memory_service = MemoryService()
 
+    def _load_intentional_mysteries(
+        self, context: Optional[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """Load intentional mysteries from project context."""
+        if not context:
+            return []
+
+        metadata = context.get("metadata") or context.get("project", {}).get("metadata") or {}
+        story_bible = metadata.get("story_bible") or {}
+        return story_bible.get("intentional_mysteries", [])
+
+    def _matches_mystery(
+        self,
+        contradiction: Dict[str, Any],
+        mysteries: List[Dict[str, Any]],
+    ) -> bool:
+        """Check if a contradiction matches an intentional mystery."""
+        if not mysteries:
+            return False
+
+        contradiction_desc = str(contradiction.get("description", "")).lower()
+        contradiction_type = str(contradiction.get("type", "")).lower()
+
+        for mystery in mysteries:
+            mystery_desc = str(mystery.get("description", "")).lower()
+            mystery_chars = [c.lower() for c in mystery.get("characters_involved", [])]
+
+            # Check description overlap
+            if mystery_desc and mystery_desc in contradiction_desc:
+                return True
+
+            # Check if contradiction involves mystery characters
+            location = str(contradiction.get("location_in_text", "")).lower()
+            if any(char in location or char in contradiction_desc for char in mystery_chars):
+                # Additional check: is contradiction type compatible with mystery?
+                mystery_type = mystery.get("contradiction_type", "")
+                if mystery_type in ("lie", "unreliable_narrator", "hidden_info"):
+                    return True
+
+        return False
+
     @property
     def name(self) -> str:
         return "Analyste de Coherence"
@@ -125,6 +166,24 @@ class ConsistencyAnalyst(BaseAgent):
 
         response = await self._call_api(prompt, context, temperature=0.2)
         analysis = self._safe_json(response)
+
+        # Filter contradictions that match intentional mysteries
+        intentional_mysteries = self._load_intentional_mysteries(context)
+        if intentional_mysteries:
+            filtered_contradictions = []
+            filtered_out = []
+
+            for contradiction in analysis.get("contradictions", []):
+                if self._matches_mystery(contradiction, intentional_mysteries):
+                    filtered_out.append({
+                        **contradiction,
+                        "filtered_reason": "Matches intentional mystery",
+                    })
+                else:
+                    filtered_contradictions.append(contradiction)
+
+            analysis["contradictions"] = filtered_contradictions
+            analysis["filtered_intentional"] = filtered_out
 
         return {
             "agent": self.name,

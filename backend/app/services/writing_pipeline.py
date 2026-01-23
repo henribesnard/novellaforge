@@ -25,6 +25,7 @@ from app.services.llm_client import DeepSeekClient
 from app.services.rag_service import RagService
 from app.services.memory_service import MemoryService
 from app.services.cache_service import CacheService
+from app.services.agents.consistency_analyst import ConsistencyAnalyst
 
 
 logger = logging.getLogger(__name__)
@@ -91,6 +92,7 @@ class WritingPipeline:
         self.memory_service = MemoryService()
         self.cache_service = CacheService()
         self.llm_client = DeepSeekClient()
+        self.consistency_analyst = ConsistencyAnalyst()
         self.graph = self._build_graph()
 
     def _log_duration(self, name: str, start: float) -> None:
@@ -605,7 +607,7 @@ class WritingPipeline:
         return result
 
     async def validate_continuity(self, state: NovelState) -> Dict[str, Any]:
-        """Validate continuity with memory, RAG, and plan constraints."""
+        """Validate continuity using ConsistencyAnalyst."""
         start = time.perf_counter()
         chapter_text = state.get("chapter_text", "")
         if not chapter_text:
@@ -620,59 +622,39 @@ class WritingPipeline:
             self._log_duration("validate_continuity", start)
             return result
 
-        plan_entry_raw = state.get("current_plan")
-        plan_entry: Dict[str, Any] = dict(plan_entry_raw) if isinstance(plan_entry_raw, dict) else {}
         chapter_text = self._truncate_text(chapter_text, settings.VALIDATION_MAX_CHARS)
-        chapter_summary = state.get("chapter_summary", "")
-        chapter_emotional_stake = state.get("chapter_emotional_stake", "")
-        plot_constraints = self._resolve_plot_constraints(state, plan_entry)
-        required_plot_points = plot_constraints.get("required_plot_points") or []
-        forbidden_actions = plot_constraints.get("forbidden_actions") or []
-        success_criteria = plot_constraints.get("success_criteria") or ""
         memory_context = self._truncate_text(state.get("memory_context", ""), settings.MEMORY_CONTEXT_MAX_CHARS)
-        rag_chunks = "\n\n".join(state.get("retrieved_chunks", [])[:3])
-        rag_chunks = self._truncate_text(rag_chunks, settings.RAG_CONTEXT_MAX_CHARS)
-        required_block = "\n".join([f"- {point}" for point in required_plot_points]) or "aucun"
-        forbidden_block = "\n".join([f"- {action}" for action in forbidden_actions]) or "aucun"
 
-        prompt = (
-            "Analyse ce chapitre draft pour detecter les incoherences graves et verifier le plan.\n\n"
-            f"CHAPITRE DRAFT:\n{chapter_text}\n\n"
-            f"MEMOIRE DE CONTINUITE:\n{memory_context}\n\n"
-            f"EXTRAITS PERTINENTS:\n{rag_chunks}\n\n"
-            "CONTRAINTES DU PLAN:\n"
-            f"- Resume attendu: {chapter_summary}\n"
-            f"- Enjeu emotionnel: {chapter_emotional_stake}\n"
-            f"- Criteres de succes: {success_criteria}\n\n"
-            "POINTS D'INTRIGUE REQUIS (doivent etre couverts):\n"
-            f"{required_block}\n\n"
-            "ACTIONS INTERDITES (ne doivent pas apparaitre):\n"
-            f"{forbidden_block}\n\n"
-            "Retourne un JSON strict avec:\n"
-            "{\n"
-            '  "severe_issues": [{"type": "contradiction", "detail": "...", "severity": "blocking"}],\n'
-            '  "minor_issues": [{"type": "timeline_unclear", "detail": "...", "severity": "warning"}],\n'
-            '  "coherence_score": 0-10,\n'
-            '  "blocking": true/false,\n'
-            '  "covered_points": ["..."],\n'
-            '  "missing_points": ["..."],\n'
-            '  "forbidden_violations": ["..."],\n'
-            '  "coverage_score": 0-10,\n'
-            '  "explanation": "..."\n'
-            "}\n"
-            'Severity "blocking" = incoherence grave qui casse la continuite.'
+        project_context = state.get("project_context") or {}
+        project_meta = project_context.get("project", {}).get("metadata", {})
+        story_bible = project_context.get("story_bible")
+        if not isinstance(story_bible, dict) or not story_bible:
+            story_bible = project_meta.get("story_bible") if isinstance(project_meta, dict) else {}
+        if not isinstance(story_bible, dict):
+            story_bible = {}
+
+        previous_chapters = await self._get_previous_chapter_texts(
+            state.get("project_id"),
+            state.get("chapter_index"),
+            limit=5,
         )
-        llm_task = self._timed_chat(
-            "validate_continuity.llm",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.2,
-            max_tokens=800,
-            response_format={"type": "json_object"},
+
+        analyst_task = self.consistency_analyst.execute(
+            task_data={
+                "action": "analyze_chapter",
+                "chapter_text": chapter_text,
+                "memory_context": memory_context,
+                "story_bible": story_bible,
+                "previous_chapters": previous_chapters,
+            },
+            context=project_context,
         )
         graph_task = self._timed_graph_validation(state)
-        response, graph_payload = await asyncio.gather(llm_task, graph_task)
-        payload = self._safe_json(response)
-        validation = self._normalize_validation_payload(payload)
+        analyst_result, graph_payload = await asyncio.gather(analyst_task, graph_task)
+
+        analysis = analyst_result.get("analysis") or {}
+        validation = self._transform_analyst_result(analysis, state)
+
         resolved_descriptions = self._get_resolved_contradictions(state)
         if resolved_descriptions:
             validation["severe_issues"] = [
@@ -685,6 +667,13 @@ class WritingPipeline:
             ]
             if validation.get("blocking") and not validation["severe_issues"] and not validation["minor_issues"]:
                 validation["blocking"] = False
+
+        plan_entry_raw = state.get("current_plan")
+        plan_entry: Dict[str, Any] = dict(plan_entry_raw) if isinstance(plan_entry_raw, dict) else {}
+        plot_constraints = self._resolve_plot_constraints(state, plan_entry)
+        required_plot_points = plot_constraints.get("required_plot_points") or []
+        forbidden_actions = plot_constraints.get("forbidden_actions") or []
+
         plot_validation = {
             "covered_points": [],
             "missing_points": [],
@@ -694,16 +683,12 @@ class WritingPipeline:
         }
         plot_issues: List[Any] = []
         if required_plot_points or forbidden_actions:
-            plot_validation, has_plot_fields = self._extract_plot_validation(payload)
-            if not has_plot_fields and settings.VALIDATION_ALLOW_FALLBACK:
-                plot_validation = await self._validate_plot_points(
-                    chapter_text,
-                    required_plot_points,
-                    forbidden_actions,
-                )
-                plot_issues = plot_validation.get("issues") or []
-            else:
-                plot_issues = self._build_plot_issues(plot_validation)
+            plot_validation = await self._validate_plot_points(
+                chapter_text,
+                required_plot_points,
+                forbidden_actions,
+            )
+            plot_issues = plot_validation.get("issues") or []
         validation["plot_point_validation"] = {
             "covered_points": plot_validation.get("covered_points") or [],
             "missing_points": plot_validation.get("missing_points") or [],
@@ -717,6 +702,7 @@ class WritingPipeline:
                 validation["severe_issues"] = [*validation.get("severe_issues", []), *valid_issues]
                 validation["blocking"] = True
                 logger.debug("Plot point validation issues detected: %s", valid_issues)
+
         graph_issues = graph_payload.get("graph_issues") or []
         validation["graph_issues"] = graph_issues
         if graph_issues:
@@ -738,6 +724,7 @@ class WritingPipeline:
                         validation["blocking"] = True
                 else:
                     validation["minor_issues"] = [*validation.get("minor_issues", []), payload]
+
         if resolved_descriptions:
             validation["graph_issues"] = [
                 issue for issue in validation.get("graph_issues", [])
@@ -751,11 +738,12 @@ class WritingPipeline:
                 issue for issue in validation.get("minor_issues", [])
                 if issue.get("detail") not in resolved_descriptions
             ]
-            if validation.get("blocking") and not validation["severe_issues"]:
+            if validation.get("blocking") and not validation.get("severe_issues"):
                 missing_points = validation.get("plot_point_validation", {}).get("missing_points") or []
                 forbidden = validation.get("plot_point_validation", {}).get("forbidden_violations") or []
                 if not missing_points and not forbidden:
                     validation["blocking"] = False
+
         if validation.get("severe_issues"):
             project_id = state.get("project_id")
             if project_id:
@@ -765,10 +753,106 @@ class WritingPipeline:
                     if not self._should_track_issue(issue):
                         continue
                     await self._track_contradiction(project_id, issue, state.get("chapter_index"))
+
         alerts = self._build_continuity_alerts(validation)
         result = {"continuity_validation": validation, "continuity_alerts": alerts}
         self._log_duration("validate_continuity", start)
         return result
+
+    def _transform_analyst_result(
+        self, analysis: Dict[str, Any], state: NovelState
+    ) -> Dict[str, Any]:
+        """Transform ConsistencyAnalyst output to pipeline format."""
+        severe_issues = []
+        minor_issues = []
+
+        for contradiction in analysis.get("contradictions", []):
+            severity = str(contradiction.get("severity") or "medium").lower()
+            issue = {
+                "type": contradiction.get("type", "contradiction"),
+                "detail": contradiction.get("description", ""),
+                "severity": "blocking" if severity == "critical" else severity,
+                "source": "consistency_analyst",
+                "suggested_fix": contradiction.get("suggested_fix", ""),
+            }
+            if severity in ("critical", "high"):
+                severe_issues.append(issue)
+            else:
+                minor_issues.append(issue)
+
+        for timeline_issue in analysis.get("timeline_issues", []):
+            severity = str(timeline_issue.get("severity") or "medium").lower()
+            issue = {
+                "type": "timeline",
+                "detail": timeline_issue.get("issue", ""),
+                "severity": "blocking" if severity == "critical" else severity,
+                "source": "consistency_analyst",
+                "suggested_fix": timeline_issue.get("suggested_fix", ""),
+            }
+            if severity in ("critical", "high"):
+                severe_issues.append(issue)
+            else:
+                minor_issues.append(issue)
+
+        for char_issue in analysis.get("character_inconsistencies", []):
+            severity = str(char_issue.get("severity") or "medium").lower()
+            issue = {
+                "type": "character",
+                "detail": f"{char_issue.get('character', 'Unknown')}: {char_issue.get('issue', '')}",
+                "severity": "blocking" if severity == "critical" else severity,
+                "source": "consistency_analyst",
+                "suggested_fix": char_issue.get("suggested_fix", ""),
+                "previous_state": char_issue.get("previous_state", ""),
+                "current_state": char_issue.get("current_state", ""),
+            }
+            if severity in ("critical", "high"):
+                severe_issues.append(issue)
+            else:
+                minor_issues.append(issue)
+
+        for rule_violation in analysis.get("world_rule_violations", []):
+            severity = str(rule_violation.get("severity") or "medium").lower()
+            issue = {
+                "type": "world_rule",
+                "detail": (
+                    f"Regle violee: {rule_violation.get('rule', '')} - "
+                    f"{rule_violation.get('violation', '')}"
+                ),
+                "severity": "blocking" if severity == "critical" else severity,
+                "source": "consistency_analyst",
+                "suggested_fix": rule_violation.get("suggested_fix", ""),
+            }
+            if severity in ("critical", "high"):
+                severe_issues.append(issue)
+            else:
+                minor_issues.append(issue)
+
+        blocking = any(issue.get("severity") == "blocking" for issue in severe_issues)
+
+        return {
+            "severe_issues": severe_issues,
+            "minor_issues": minor_issues,
+            "coherence_score": float(analysis.get("overall_coherence_score") or 7.0),
+            "blocking": blocking,
+            "blocking_issues": analysis.get("blocking_issues", []),
+            "summary": analysis.get("summary", ""),
+        }
+
+    async def _get_previous_chapter_texts(
+        self, project_id: Optional[UUID], chapter_index: Optional[int], limit: int = 5
+    ) -> List[str]:
+        """Retrieve previous chapter texts for context."""
+        if not project_id or not chapter_index or chapter_index <= 1:
+            return []
+
+        doc_service = DocumentService(self.db)
+        chapters = []
+        for idx in range(max(1, chapter_index - limit), chapter_index):
+            doc = await doc_service.get_chapter_by_index(project_id, idx)
+            if doc and doc.content:
+                content = doc.content[:2000] if len(doc.content) > 2000 else doc.content
+                chapters.append(f"[Chapitre {idx}]\n{content}")
+        return chapters
 
     async def critic(self, state: NovelState) -> Dict[str, Any]:
         start = time.perf_counter()
