@@ -28,12 +28,20 @@ slowapi==0.1.9
 openai==1.43.0
 langchain==0.3.0
 langchain-community==0.3.0
+langchain-huggingface>=0.0.1
+langchain-qdrant>=0.0.1
 langchain-text-splitters==0.3.0
 langgraph==0.2.45
 llama-index==0.11.0
 llama-index-vector-stores-qdrant==0.3.0
 qdrant-client==1.11.0
 neo4j==5.26.0
+
+# grpcio/protobuf (install before chromadb to use prebuilt wheels)
+grpcio==1.60.0
+protobuf==4.25.3
+
+# ChromaDB (after grpcio to avoid source compilation)
 chromadb==0.5.5
 
 # Embeddings & NLP
@@ -56,6 +64,9 @@ ebooklib==0.18
 
 # Monitoring & Logging
 sentry-sdk[fastapi]==2.14.0
+prometheus-client==0.20.0
+structlog==24.2.0
+# Note: opentelemetry is optional, installed by chromadb if needed
 
 # Testing
 pytest==8.3.2

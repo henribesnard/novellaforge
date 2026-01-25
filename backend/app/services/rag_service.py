@@ -3,11 +3,12 @@ from typing import List, Dict, Any
 from uuid import UUID
 import asyncio
 import logging
+import warnings
 
 from qdrant_client import QdrantClient
 from qdrant_client.http import models as qdrant_models
-from langchain_community.vectorstores import Qdrant
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_qdrant import Qdrant
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from app.core.config import settings
@@ -21,6 +22,15 @@ class RagService:
     """Index project documents into Qdrant and retrieve relevant chunks."""
 
     def __init__(self) -> None:
+        if (
+            settings.DEBUG
+            and settings.QDRANT_API_KEY
+            and settings.QDRANT_URL.startswith("http://")
+        ):
+            warnings.filterwarnings(
+                "ignore",
+                message="Api key is used with an insecure connection",
+            )
         self.client = QdrantClient(url=settings.QDRANT_URL, api_key=settings.QDRANT_API_KEY)
         self.collection_name = settings.QDRANT_COLLECTION_NAME
         self.embeddings = HuggingFaceEmbeddings(model_name=settings.EMBEDDING_MODEL)
@@ -28,6 +38,28 @@ class RagService:
             chunk_size=settings.RAG_CHUNK_SIZE,
             chunk_overlap=settings.RAG_CHUNK_OVERLAP,
         )
+
+    def _build_vector_store(self) -> Qdrant:
+        """Create a Qdrant vector store instance with compatibility fallback."""
+        try:
+            return Qdrant(
+                client=self.client,
+                collection_name=self.collection_name,
+                embeddings=self.embeddings,
+            )
+        except TypeError:
+            return Qdrant(
+                client=self.client,
+                collection_name=self.collection_name,
+                embedding=self.embeddings,
+            )
+
+    async def warmup(self) -> None:
+        """Preload embedding model weights to reduce first-call latency."""
+        try:
+            await asyncio.to_thread(self.embeddings.embed_query, "warmup")
+        except Exception:
+            logger.exception("RAG warmup failed")
 
     def _ensure_collection(self) -> None:
         """Ensure the Qdrant collection exists."""
@@ -111,11 +143,7 @@ class RagService:
         if not texts:
             return 0
 
-        vector_store = Qdrant(
-            client=self.client,
-            collection_name=self.collection_name,
-            embeddings=self.embeddings,
-        )
+        vector_store = self._build_vector_store()
         vector_store.add_texts(texts=texts, metadatas=metadatas)
         return len(texts)
 
@@ -145,11 +173,7 @@ class RagService:
         if not texts:
             return 0
 
-        vector_store = Qdrant(
-            client=self.client,
-            collection_name=self.collection_name,
-            embeddings=self.embeddings,
-        )
+        vector_store = self._build_vector_store()
         vector_store.add_texts(texts=texts, metadatas=metadatas)
         return len(texts)
 
@@ -161,11 +185,7 @@ class RagService:
     ) -> List[str]:
         """Retrieve top-k relevant chunks for a project."""
         self._ensure_collection()
-        vector_store = Qdrant(
-            client=self.client,
-            collection_name=self.collection_name,
-            embeddings=self.embeddings,
-        )
+        vector_store = self._build_vector_store()
         project_filter = qdrant_models.Filter(
             must=[
                 qdrant_models.FieldCondition(

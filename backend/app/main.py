@@ -3,7 +3,8 @@ NovellaForge - Serial Fiction Studio
 Main FastAPI Application
 """
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, HTTPException
+import warnings
+from fastapi import FastAPI, Request, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
@@ -17,6 +18,16 @@ from app.core.config import settings
 from app.api.v1 import api_router
 from app.db.session import engine
 from app.db.base import Base
+from app.infrastructure.di.providers import get_configured_container
+from app.infrastructure.di.container import Container
+from app.infrastructure.observability import (
+    ObservabilityMiddleware,
+    PROMETHEUS_AVAILABLE,
+    METRICS_CONTENT_TYPE,
+    render_metrics,
+    configure_structlog,
+    setup_tracing,
+)
 
 # Configure logging
 logging.basicConfig(
@@ -29,6 +40,17 @@ app_logger = logging.getLogger("app")
 app_logger.setLevel(settings.LOG_LEVEL)
 app_logger.propagate = True
 app_logger.disabled = False
+
+if settings.STRUCTURED_LOGGING_ENABLED:
+    configure_structlog()
+if settings.TRACING_ENABLED:
+    setup_tracing(settings.PROJECT_NAME)
+
+if settings.DEBUG:
+    warnings.filterwarnings(
+        "ignore",
+        message='Field "model_name".*protected namespace',
+    )
 
 pipeline_logger = logging.getLogger("app.services.writing_pipeline")
 pipeline_logger.setLevel(settings.LOG_LEVEL)
@@ -45,14 +67,32 @@ async def lifespan(app: FastAPI):
     logger.info(f"Environment: {settings.APP_ENV}")
     logger.info(f"Debug mode: {settings.DEBUG}")
 
+    container = get_configured_container()
+    app.state.container = container
+
     if settings.DEBUG:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         logger.info("Database tables created")
 
+    if settings.RAG_PRELOAD_MODELS:
+        try:
+            from app.services.rag_service import RagService
+
+            rag_service = RagService()
+            await rag_service.warmup()
+            logger.info("RAG embeddings warmed up")
+        except Exception:
+            logger.exception("RAG warmup failed")
+
     yield
 
+    Container.reset()
     logger.info(f"Shutting down {settings.PROJECT_NAME}")
+
+
+def get_container() -> Container:
+    return Container.get_instance()
 
 
 # Create FastAPI application
@@ -86,6 +126,9 @@ if not settings.DEBUG:
         TrustedHostMiddleware,
         allowed_hosts=settings.ALLOWED_HOSTS
     )
+
+if settings.OBSERVABILITY_ENABLED:
+    app.add_middleware(ObservabilityMiddleware)
 
 
 # Request timing middleware
@@ -140,6 +183,12 @@ async def health_check():
         "version": settings.VERSION,
         "environment": settings.APP_ENV
     }
+
+
+if settings.METRICS_ENABLED and PROMETHEUS_AVAILABLE:
+    @app.get(settings.METRICS_PATH, tags=["Metrics"])
+    async def metrics():
+        return Response(content=render_metrics(), media_type=METRICS_CONTENT_TYPE)
 
 
 # Root endpoint

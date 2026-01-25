@@ -148,6 +148,8 @@ WRITE_DISTRIBUTED_BEATS=false  # true si workers Celery actifs
 WRITE_PARTIAL_REVISION=true
 MAX_REVISIONS=2
 QUALITY_GATE_COHERENCE_THRESHOLD=6.0
+RAG_PRELOAD_MODELS=true        # pre-charge les embeddings au demarrage
+CONSISTENCY_ANALYST_TIMEOUT=60  # timeout analyste de coherence (secondes)
 ```
 
 #### Tokens et limites

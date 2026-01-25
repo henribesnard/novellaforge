@@ -3,10 +3,21 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 from datetime import datetime, timedelta
+import asyncio
 import json
 import logging
+import warnings
 
 from app.core.config import settings
+
+# Suppress Neo4j warnings about missing property keys in schema
+# These occur when querying for properties that don't exist yet in the graph
+warnings.filterwarnings(
+    "ignore",
+    category=UserWarning,
+    module="neo4j",
+    message=".*property key.*not in the database.*",
+)
 from app.services.llm_client import DeepSeekClient
 
 try:
@@ -23,6 +34,11 @@ except ImportError:  # pragma: no cover - optional dependency
 
 chromadb: Optional[Any] = chromadb_module
 
+try:
+    from chromadb.config import Settings as ChromaSettings  # type: ignore[import-not-found]
+except ImportError:  # pragma: no cover - optional dependency
+    ChromaSettings = None  # type: ignore[assignment]
+
 
 logger = logging.getLogger(__name__)
 
@@ -31,15 +47,25 @@ CHARACTER_LOCATIONS = ["known", "unknown", "traveling"]
 
 _NEO4J_CACHE = {}
 _NEO4J_CACHE_TTL = timedelta(minutes=10)
+_NEO4J_SCHEMA_READY = False
 
 
 class MemoryService:
     """Hybrid memory service with optional Neo4j and ChromaDB support."""
 
-    def __init__(self) -> None:
-        self.llm_client = DeepSeekClient()
-        self.neo4j_driver = self._init_neo4j()
-        self.chroma_client = self._init_chroma()
+    def __init__(
+        self,
+        llm_client: Optional[DeepSeekClient] = None,
+        neo4j_driver: Optional[Any] = None,
+        chroma_client: Optional[Any] = None,
+        neo4j_async_client: Optional[Any] = None,
+    ) -> None:
+        self.llm_client = llm_client or DeepSeekClient()
+        self.neo4j_driver = neo4j_driver if neo4j_driver is not None else self._init_neo4j()
+        self.chroma_client = chroma_client if chroma_client is not None else self._init_chroma()
+        self.neo4j_async_client = neo4j_async_client
+        if self.neo4j_driver:
+            self._ensure_neo4j_schema()
 
     def _init_neo4j(self):
         if not settings.NEO4J_URI or not GraphDatabase:
@@ -52,9 +78,44 @@ class MemoryService:
     def _init_chroma(self):
         if not chromadb:
             return None
+        chroma_settings = None
+        if ChromaSettings is not None:
+            chroma_settings = ChromaSettings(
+                anonymized_telemetry=settings.CHROMA_ANONYMIZED_TELEMETRY
+            )
         if settings.CHROMA_HOST and settings.CHROMA_PORT:
-            return chromadb.HttpClient(host=settings.CHROMA_HOST, port=settings.CHROMA_PORT)
-        return chromadb.PersistentClient(path=settings.CHROMA_PERSIST_DIR)
+            return chromadb.HttpClient(
+                host=settings.CHROMA_HOST,
+                port=settings.CHROMA_PORT,
+                settings=chroma_settings,
+            )
+        return chromadb.PersistentClient(
+            path=settings.CHROMA_PERSIST_DIR,
+            settings=chroma_settings,
+        )
+
+    def _ensure_neo4j_schema(self) -> None:
+        global _NEO4J_SCHEMA_READY
+        if _NEO4J_SCHEMA_READY or not self.neo4j_driver:
+            return
+        database = settings.NEO4J_DATABASE or None
+        try:
+            with self.neo4j_driver.session(database=database) as session:
+                session.run(
+                    "CREATE INDEX event_project_id IF NOT EXISTS "
+                    "FOR (e:Event) ON (e.project_id)"
+                )
+                session.run(
+                    "CREATE INDEX event_unresolved IF NOT EXISTS "
+                    "FOR (e:Event) ON (e.unresolved)"
+                )
+                session.run(
+                    "CREATE INDEX event_last_mentioned IF NOT EXISTS "
+                    "FOR (e:Event) ON (e.last_mentioned_chapter)"
+                )
+            _NEO4J_SCHEMA_READY = True
+        except Exception:
+            logger.warning("Neo4j schema initialization failed.", exc_info=True)
 
     async def extract_facts(self, chapter_text: str) -> Dict[str, Any]:
         """Extract enriched continuity facts from chapter text."""
@@ -622,40 +683,47 @@ class MemoryService:
                     continue
                 event_chapter = self._resolve_chapter_index(event.get("chapter_index"), base_chapter)
                 unresolved_threads = self._normalize_list(event.get("unresolved_threads"))
+                unresolved = bool(unresolved_threads)
                 params = {
                     "name": name,
                     "summary": event.get("summary"),
-                    "impact": event.get("impact"),
                     "time_reference": event.get("time_reference"),
+                    "impact": event.get("impact"),
                     "chapter_index": event_chapter,
                     "timestamp": timestamp,
+                    "unresolved": unresolved,
                     "unresolved_threads": unresolved_threads,
-                    "unresolved": bool(unresolved_threads),
                 }
                 if project_id:
                     params["project_id"] = project_id
                     session.run(
                         "MERGE (e:Event {name: $name, project_id: $project_id}) "
                         "ON CREATE SET e.created_chapter = $chapter_index, e.first_appearance = $timestamp "
-                        "SET e.summary = $summary, e.impact = $impact, e.time_reference = $time_reference, "
-                        "e.last_mentioned_chapter = $chapter_index, e.last_updated = $timestamp, "
-                        "e.unresolved_threads = $unresolved_threads, e.unresolved = $unresolved, "
-                        "e.project_id = $project_id",
+                        "SET e.summary = $summary, e.time_reference = $time_reference, "
+                        "e.impact = $impact, e.last_mentioned_chapter = $chapter_index, "
+                        "e.unresolved = $unresolved, e.unresolved_threads = $unresolved_threads, "
+                        "e.last_updated = $timestamp, e.project_id = $project_id",
                         **params,
                     )
                 else:
                     session.run(
                         "MERGE (e:Event {name: $name}) "
                         "ON CREATE SET e.created_chapter = $chapter_index, e.first_appearance = $timestamp "
-                        "SET e.summary = $summary, e.impact = $impact, e.time_reference = $time_reference, "
-                        "e.last_mentioned_chapter = $chapter_index, e.last_updated = $timestamp, "
-                        "e.unresolved_threads = $unresolved_threads, e.unresolved = $unresolved",
+                        "SET e.summary = $summary, e.time_reference = $time_reference, "
+                        "e.impact = $impact, e.last_mentioned_chapter = $chapter_index, "
+                        "e.unresolved = $unresolved, e.unresolved_threads = $unresolved_threads, "
+                        "e.last_updated = $timestamp",
                         **params,
                     )
-        
-        # Update objects and character locations
-        self.update_neo4j_objects(facts, project_id, chapter_index)
-        self.update_character_locations(facts, project_id, chapter_index)
+
+    async def update_neo4j_async(
+        self,
+        facts: Dict[str, Any],
+        project_id: Optional[str] = None,
+        chapter_index: Optional[int] = None,
+    ) -> None:
+        """Async wrapper for Neo4j updates (uses thread fallback)."""
+        await asyncio.to_thread(self.update_neo4j, facts, project_id, chapter_index)
 
     def query_character_evolution(
         self, character_name: str, project_id: Optional[str] = None
@@ -775,6 +843,19 @@ class MemoryService:
             return []
         cutoff = chapter_value - 10
         database = settings.NEO4J_DATABASE or None
+        with self.neo4j_driver.session(database=database) as session:
+            if project_id:
+                count_result = session.run(
+                    "MATCH (e:Event {project_id: $project_id}) RETURN count(e) as total",
+                    project_id=project_id,
+                ).single()
+            else:
+                count_result = session.run(
+                    "MATCH (e:Event) RETURN count(e) as total"
+                ).single()
+            total = count_result.get("total") if count_result else 0
+            if not total:
+                return []
         if project_id:
             query = (
                 "MATCH (e:Event {project_id: $project_id}) "
