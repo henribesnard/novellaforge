@@ -52,6 +52,10 @@ out/
 *.swo
 *~
 .DS_Store
+.claude/settings.local.json
+
+# Local scheduler state
+backend/celerybeat-schedule
 
 # Docker
 *.pid

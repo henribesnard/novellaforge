@@ -41,6 +41,9 @@ app_logger.setLevel(settings.LOG_LEVEL)
 app_logger.propagate = True
 app_logger.disabled = False
 
+if not settings.CHROMA_ANONYMIZED_TELEMETRY:
+    logging.getLogger("chromadb.telemetry.product.posthog").setLevel(logging.CRITICAL)
+
 if settings.STRUCTURED_LOGGING_ENABLED:
     configure_structlog()
 if settings.TRACING_ENABLED:
