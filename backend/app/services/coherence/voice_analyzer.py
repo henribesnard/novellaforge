@@ -27,8 +27,12 @@ class VoiceConsistencyAnalyzer:
     with validated historical patterns.
     """
 
-    def __init__(self, model_name: str = "paraphrase-multilingual-MiniLM-L12-v2") -> None:
-        self.memory_service = MemoryService()
+    def __init__(
+        self,
+        model_name: str = "paraphrase-multilingual-MiniLM-L12-v2",
+        memory_service: Optional[MemoryService] = None,
+    ) -> None:
+        self.memory_service = memory_service or MemoryService()
         self.model = None
         self.enabled = settings.VOICE_ANALYZER_ENABLED
         self.threshold = settings.VOICE_CONSISTENCY_THRESHOLD

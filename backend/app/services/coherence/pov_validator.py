@@ -28,8 +28,8 @@ class POVValidator:
         "objective": "Narrateur externe, pas d'accès aux pensées",
     }
 
-    def __init__(self) -> None:
-        self.llm_client = DeepSeekClient()
+    def __init__(self, llm_client: Optional[DeepSeekClient] = None) -> None:
+        self.llm_client = llm_client or DeepSeekClient()
         self.enabled = settings.POV_VALIDATOR_ENABLED
         self.default_type = settings.POV_DEFAULT_TYPE
 

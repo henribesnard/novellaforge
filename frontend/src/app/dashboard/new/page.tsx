@@ -4,7 +4,7 @@
 
 'use client'
 
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { Suspense, useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { getAuthToken, removeAuthToken } from '@/lib/api'
 import {
@@ -861,7 +861,7 @@ function ProjectCard({ project, onReload, onOpenProject, onDeleteRequest }: Proj
   )
 }
 
-export default function ModernDashboardPage() {
+function ModernDashboardContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [loading, setLoading] = useState(true)
@@ -1140,5 +1140,23 @@ export default function ModernDashboardPage() {
         </DialogFooter>
       </Dialog>
     </div>
+  )
+}
+
+// Wrapper with Suspense for useSearchParams (required by Next.js 15)
+export default function ModernDashboardPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-atlas flex items-center justify-center">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-700 mx-auto"></div>
+            <p className="mt-4 text-ink/60">Chargement...</p>
+          </div>
+        </div>
+      }
+    >
+      <ModernDashboardContent />
+    </Suspense>
   )
 }

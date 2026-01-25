@@ -4,14 +4,14 @@
 
 | Phase | Statut | Notes |
 |-------|--------|-------|
-| **Phase 1** : Shared Kernel | ⬜ Non commencé | Fondations event-driven |
-| **Phase 2** : DI Container | ⬜ Non commencé | Injection de dépendances |
-| **Phase 3** : Bounded Contexts | ⬜ Non commencé | Modules domaine (Writing, Memory, Coherence, Project) |
-| **Phase 4** : CQRS | ⬜ Non commencé | Séparation lecture/écriture |
-| **Phase 5** : Event Bus | ⬜ Non commencé | Redis Streams |
-| **Phase 6** : Résilience | ⬜ Non commencé | Circuit breakers, retry |
-| **Phase 7** : Observabilité | ⬜ Non commencé | Prometheus, Structlog, OpenTelemetry |
-| **Phase 8** : Async Neo4j | ⬜ Non commencé | Migration driver async |
+| **Phase 1** : Shared Kernel | ✅ Terminé | domain_events, value_objects, exceptions, result pattern |
+| **Phase 2** : DI Container | ✅ Terminé | Container, scopes, providers, intégration main.py |
+| **Phase 3** : Bounded Contexts | ✅ Terminé | writing, memory, coherence, project domains (repositories = interfaces) |
+| **Phase 4** : CQRS | ✅ Terminé | CommandBus, QueryBus, Mediator, handlers, intégration API avec feature flag |
+| **Phase 5** : Event Bus | ✅ Terminé | InMemoryEventBus, RedisStreamsEventBus, Consumer, tests OK |
+| **Phase 6** : Resilience | ✅ Terminé | CircuitBreaker, retry, timeout, decorators, tests OK |
+| **Phase 7** : Observabilite | ✅ Terminé | Metrics Prometheus, Structlog, OpenTelemetry tracing, middleware |
+| **Phase 8** : Async Neo4j | ✅ Terminé | AsyncNeo4jClient prêt, wrapper async dans MemoryService |
 
 ### Légende
 - ⬜ Non commencé
@@ -46,6 +46,8 @@ Ce plan détaille la migration incrémentale de NovellaForge vers une architectu
 
 ### Objectif
 Établir les fondations pour l'architecture event-driven sans modifier le comportement existant.
+
+**Statut (23 janvier 2026)** : Implementation du shared_kernel ajoutee. Tests complets OK.
 
 ### Fichiers à Créer
 
@@ -337,6 +339,8 @@ Supprimer le dossier `backend/app/shared_kernel/`. Aucun code existant n'est mod
 
 ### Objectif
 Introduire un conteneur DI pour découpler les services sans casser le code existant.
+
+**Statut (23 janvier 2026)** : DI container et adaptations des services ajoutes. Tests complets OK.
 
 ### Fichiers à Créer
 
@@ -879,6 +883,8 @@ class Mediator:
 ### Objectif
 Implémenter la communication event-driven entre bounded contexts.
 
+**Statut (23 janvier 2026)** : ✅ TERMINÉ - Event bus (InMemory + Redis Streams), Consumer, handlers registry. Tests unitaires OK.
+
 ### Fichiers à Créer
 
 ```
@@ -937,6 +943,8 @@ class RedisStreamsEventBus(EventBus):
 
 ### Objectif
 Ajouter la tolérance aux pannes pour les appels aux services externes.
+
+**Statut (23 janvier 2026)** : ✅ TERMINÉ - CircuitBreaker, async_retry, with_timeout, decorators. Tests unitaires OK.
 
 ### Fichiers à Créer
 
@@ -1022,6 +1030,8 @@ class CircuitBreaker:
 ### Objectif
 Ajouter logs structurés, métriques Prometheus, et tracing distribué.
 
+**Statut (23 janvier 2026)** : ✅ TERMINÉ - Metrics Prometheus (avec fallback), Structlog config, OpenTelemetry tracing, ObservabilityMiddleware.
+
 ### Fichiers à Créer
 
 ```
@@ -1070,6 +1080,8 @@ CIRCUIT_BREAKER_STATE = Gauge(
 
 ### Objectif
 Convertir Neo4j en driver async et finaliser l'intégration.
+
+**Statut (23 janvier 2026)** : ✅ TERMINÉ - AsyncNeo4jClient implémenté, wrapper update_neo4j_async dans MemoryService.
 
 ### Fichiers à Modifier
 

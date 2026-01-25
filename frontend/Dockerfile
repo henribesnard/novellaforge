@@ -25,6 +25,14 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# Build arguments for Next.js public env vars
+ARG NEXT_PUBLIC_API_URL=http://localhost:8002/api/v1
+ARG NEXT_PUBLIC_WS_URL=ws://localhost:8002/ws
+
+# Set as env vars for build time
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_WS_URL=$NEXT_PUBLIC_WS_URL
+
 # Copy package files
 COPY package*.json ./
 
@@ -37,28 +45,24 @@ COPY . .
 # Build application
 RUN npm run build
 
-# Production stage
+# Production stage (standalone mode)
 FROM node:20-alpine AS production
 
 WORKDIR /app
 
 # Set production environment
 ENV NODE_ENV=production
-
-# Copy package files
-COPY package*.json ./
-
-# Install only production dependencies
-RUN npm ci --only=production
-
-# Copy built application from builder
-COPY --from=builder /app/.next ./.next
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/next.config.js ./
+ENV PORT=3000
+ENV HOSTNAME="0.0.0.0"
 
 # Create non-root user
 RUN addgroup -g 1001 -S nodejs && \
     adduser -S nextjs -u 1001
+
+# Copy standalone build from builder
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
+COPY --from=builder /app/public ./public
 
 # Set ownership
 RUN chown -R nextjs:nodejs /app
@@ -69,5 +73,5 @@ USER nextjs
 # Expose port
 EXPOSE 3000
 
-# Start production server
-CMD ["npm", "start"]
+# Start standalone server
+CMD ["node", "server.js"]

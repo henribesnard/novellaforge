@@ -11,6 +11,7 @@ from app.db.session import get_db
 from app.models.user import User
 from app.models.project import Project
 from app.models.document import Document
+from app.core.config import settings
 from app.core.security import get_current_active_user, get_user_from_token
 from app.schemas.writing import (
     IndexProjectRequest,
@@ -25,11 +26,27 @@ from app.schemas.writing import (
 )
 from app.services.rag_service import RagService
 from app.services.writing_pipeline import WritingPipeline
-from app.services.llm_client import DeepSeekClient
+from app.domains.writing.application.commands.generate_chapter import (
+    GenerateChapterCommand,
+    ApproveChapterCommand,
+)
+from app.domains.writing.application.handlers.command_handlers import (
+    GenerateChapterHandler,
+    ApproveChapterHandler,
+)
+from app.infrastructure.cqrs import CommandBus, QueryBus, Mediator
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _build_writing_mediator(db: AsyncSession) -> Mediator:
+    command_bus = CommandBus()
+    command_bus.register(GenerateChapterCommand, GenerateChapterHandler(db))
+    command_bus.register(ApproveChapterCommand, ApproveChapterHandler(db))
+    query_bus = QueryBus()
+    return Mediator(command_bus, query_bus)
 
 
 async def _verify_project_access(db: AsyncSession, project_id: UUID, user_id: UUID) -> Project:
@@ -113,21 +130,37 @@ async def generate_chapter(
         }
         instruction = focus_map.get(request.rewrite_focus) or "Renforce cet aspect dans ce chapitre."
 
-    pipeline = WritingPipeline(db)
-    result = await pipeline.generate_chapter(
-        {
-            "project_id": request.project_id,
-            "user_id": current_user.id,
-            "chapter_id": request.chapter_id,
-            "chapter_index": request.chapter_index,
-            "chapter_instruction": instruction,
-            "target_word_count": request.target_word_count,
-            "use_rag": request.use_rag,
-            "reindex_documents": request.reindex_documents,
-            "create_document": request.create_document,
-            "auto_approve": request.auto_approve,
-        }
-    )
+    if settings.FEATURE_FLAG_NEW_ARCHITECTURE:
+        mediator = _build_writing_mediator(db)
+        command = GenerateChapterCommand(
+            project_id=request.project_id,
+            user_id=current_user.id,
+            chapter_id=request.chapter_id,
+            chapter_index=request.chapter_index,
+            instruction=instruction,
+            target_word_count=request.target_word_count,
+            use_rag=request.use_rag,
+            reindex_documents=request.reindex_documents,
+            create_document=request.create_document,
+            auto_approve=request.auto_approve,
+        )
+        result = await mediator.send(command)
+    else:
+        pipeline = WritingPipeline(db)
+        result = await pipeline.generate_chapter(
+            {
+                "project_id": request.project_id,
+                "user_id": current_user.id,
+                "chapter_id": request.chapter_id,
+                "chapter_index": request.chapter_index,
+                "chapter_instruction": instruction,
+                "target_word_count": request.target_word_count,
+                "use_rag": request.use_rag,
+                "reindex_documents": request.reindex_documents,
+                "create_document": request.create_document,
+                "auto_approve": request.auto_approve,
+            }
+        )
 
     critique_payload = result.get("critique") or {}
     critique = None
@@ -162,8 +195,16 @@ async def approve_chapter(
     current_user: User = Depends(get_current_active_user),
 ):
     """Approve a draft chapter and update continuity memory."""
-    pipeline = WritingPipeline(db)
-    result = await pipeline.approve_chapter(str(request.document_id), current_user.id)
+    if settings.FEATURE_FLAG_NEW_ARCHITECTURE:
+        mediator = _build_writing_mediator(db)
+        command = ApproveChapterCommand(
+            chapter_id=request.document_id,
+            user_id=current_user.id,
+        )
+        result = await mediator.send(command)
+    else:
+        pipeline = WritingPipeline(db)
+        result = await pipeline.approve_chapter(str(request.document_id), current_user.id)
     if not result:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chapter not found")
 

@@ -25,9 +25,13 @@ class RecursiveMemory:
             └── Level 1: Chapter Summaries (detailed, last 5 chapters)
     """
 
-    def __init__(self, db: AsyncSession) -> None:
+    def __init__(
+        self,
+        db: AsyncSession,
+        llm_client: Optional[DeepSeekClient] = None,
+    ) -> None:
         self.db = db
-        self.llm_client = DeepSeekClient()
+        self.llm_client = llm_client or DeepSeekClient()
 
         # Configuration
         self.recent_chapters_count = settings.RECURSIVE_MEMORY_RECENT_CHAPTERS

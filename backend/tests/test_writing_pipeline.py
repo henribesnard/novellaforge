@@ -5,6 +5,7 @@ from uuid import uuid4
 import pytest
 
 from app.services.writing_pipeline import WritingPipeline
+import app.services.writing_pipeline as writing_pipeline
 
 
 def test_quality_gate_accepts_good_chapter():
@@ -553,7 +554,7 @@ def test_build_continuity_alerts_formats_output():
 
 
 @pytest.mark.asyncio
-async def test_retrieve_context_returns_memory_when_rag_disabled():
+async def test_retrieve_context_returns_memory_when_rag_disabled(monkeypatch):
     pipeline = WritingPipeline.__new__(WritingPipeline)
 
     class DummyMemoryService:
@@ -577,7 +578,11 @@ async def test_retrieve_context_returns_memory_when_rag_disabled():
 
     pipeline.cache_service = DummyCacheService()
 
-    monkeypatch.setattr(writing_pipeline.SmartContextTruncator, "truncate_memory_context", lambda *args, **kwargs: "context")
+    monkeypatch.setattr(
+        writing_pipeline.SmartContextTruncator,
+        "truncate_memory_context",
+        lambda *args, **kwargs: "context",
+    )
 
     result = await pipeline.retrieve_context(
         {
@@ -670,7 +675,11 @@ async def test_retrieve_context_with_rag(monkeypatch):
 
     pipeline._load_project_documents = fake_load
 
-    monkeypatch.setattr(writing_pipeline.SmartContextTruncator, "truncate_memory_context", lambda *args, **kwargs: "context")
+    monkeypatch.setattr(
+        writing_pipeline.SmartContextTruncator,
+        "truncate_memory_context",
+        lambda *args, **kwargs: "context",
+    )
 
     result = await pipeline.retrieve_context(
         {

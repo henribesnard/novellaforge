@@ -1,0 +1,1 @@
+"""Writing infrastructure adapters."""

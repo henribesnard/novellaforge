@@ -10,10 +10,19 @@ from app.core.config import settings
 class DeepSeekClient:
     """Async client for DeepSeek chat completions."""
 
-    def __init__(self) -> None:
-        self.api_key = settings.DEEPSEEK_API_KEY
-        self.base_url = settings.DEEPSEEK_API_BASE.rstrip("/")
-        self.model = settings.DEEPSEEK_MODEL
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        model: Optional[str] = None,
+        timeout: Optional[float] = None,
+        client: Optional[httpx.AsyncClient] = None,
+    ) -> None:
+        self.api_key = api_key or settings.DEEPSEEK_API_KEY
+        self.base_url = (base_url or settings.DEEPSEEK_API_BASE).rstrip("/")
+        self.model = model or settings.DEEPSEEK_MODEL
+        self.timeout = timeout or settings.DEEPSEEK_TIMEOUT
+        self._client = client
 
     async def chat(
         self,
@@ -38,28 +47,36 @@ class DeepSeekClient:
             "Content-Type": "application/json",
         }
 
-        timeout = httpx.Timeout(settings.DEEPSEEK_TIMEOUT, read=settings.DEEPSEEK_TIMEOUT)
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            try:
-                response = await client.post(
+        timeout = httpx.Timeout(self.timeout, read=self.timeout)
+        try:
+            if self._client is None:
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    response = await client.post(
+                        f"{self.base_url}/chat/completions",
+                        headers=headers,
+                        json=payload,
+                    )
+            else:
+                response = await self._client.post(
                     f"{self.base_url}/chat/completions",
                     headers=headers,
                     json=payload,
+                    timeout=timeout,
                 )
-                if response.status_code != 200:
-                    raise RuntimeError(f"DeepSeek API error: {response.text}")
-            except ReadTimeout:
-                raise
-            except httpx.HTTPError as exc:
-                raise RuntimeError(
-                    "DeepSeek connection error. Please retry in a moment."
-                ) from exc
+            if response.status_code != 200:
+                raise RuntimeError(f"DeepSeek API error: {response.text}")
+        except ReadTimeout:
+            raise
+        except httpx.HTTPError as exc:
+            raise RuntimeError(
+                "DeepSeek connection error. Please retry in a moment."
+            ) from exc
 
-            result = response.json()
-            message = result["choices"][0]["message"]
-            if return_full:
-                return message
-            return message.get("content", "")
+        result = response.json()
+        message = result["choices"][0]["message"]
+        if return_full:
+            return message
+        return message.get("content", "")
 
     async def chat_stream(
         self,
@@ -81,14 +98,42 @@ class DeepSeekClient:
             "Content-Type": "application/json",
         }
 
-        timeout = httpx.Timeout(settings.DEEPSEEK_TIMEOUT, read=settings.DEEPSEEK_TIMEOUT)
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            try:
-                async with client.stream(
+        timeout = httpx.Timeout(self.timeout, read=self.timeout)
+        try:
+            if self._client is None:
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    async with client.stream(
+                        "POST",
+                        f"{self.base_url}/chat/completions",
+                        headers=headers,
+                        json=payload,
+                    ) as response:
+                        if response.status_code != 200:
+                            error_text = await response.aread()
+                            raise RuntimeError(f"DeepSeek API error: {error_text.decode()}")
+
+                        async for line in response.aiter_lines():
+                            if not line:
+                                continue
+                            if line.startswith("data: "):
+                                data = line[6:]
+                                if data == "[DONE]":
+                                    break
+                                try:
+                                    chunk = json.loads(data)
+                                    delta = chunk.get("choices", [{}])[0].get("delta", {})
+                                    content = delta.get("content")
+                                    if content:
+                                        yield content
+                                except json.JSONDecodeError:
+                                    continue
+            else:
+                async with self._client.stream(
                     "POST",
                     f"{self.base_url}/chat/completions",
                     headers=headers,
                     json=payload,
+                    timeout=timeout,
                 ) as response:
                     if response.status_code != 200:
                         error_text = await response.aread()
@@ -109,12 +154,12 @@ class DeepSeekClient:
                                     yield content
                             except json.JSONDecodeError:
                                 continue
-            except ReadTimeout:
-                raise
-            except httpx.HTTPError as exc:
-                raise RuntimeError(
-                    "DeepSeek connection error. Please retry in a moment."
-                ) from exc
+        except ReadTimeout:
+            raise
+        except httpx.HTTPError as exc:
+            raise RuntimeError(
+                "DeepSeek connection error. Please retry in a moment."
+            ) from exc
 
     async def chat_stream_full(
         self,

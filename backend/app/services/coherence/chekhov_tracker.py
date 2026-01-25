@@ -66,9 +66,13 @@ class ChekhovGun:
 class ChekhovTracker:
     """Track and manage Chekhov's Guns in a narrative."""
     
-    def __init__(self) -> None:
-        self.llm_client = DeepSeekClient()
-        self.memory_service = MemoryService()
+    def __init__(
+        self,
+        llm_client: Optional[DeepSeekClient] = None,
+        memory_service: Optional[MemoryService] = None,
+    ) -> None:
+        self.llm_client = llm_client or DeepSeekClient()
+        self.memory_service = memory_service or MemoryService()
     
     async def extract_guns(
         self,

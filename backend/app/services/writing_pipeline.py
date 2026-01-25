@@ -115,6 +115,34 @@ class WritingPipeline:
         finally:
             self._log_duration("validate_continuity.graph", start)
 
+    async def _validate_with_llm(
+        self,
+        chapter_text: str,
+        memory_context: str,
+        story_bible: Dict[str, Any],
+        previous_chapters: List[str],
+    ) -> Dict[str, Any]:
+        """Fallback continuity validation using the pipeline LLM client."""
+        prompt = (
+            "Analyze narrative continuity and return JSON with keys: "
+            "severe_issues (list), minor_issues (list), coherence_score (0-10), blocking (bool). "
+            "Each issue should include: type, detail, severity.\n"
+            f"Chapter:\n{chapter_text}\n\n"
+            f"Memory context:\n{memory_context}\n\n"
+            f"Story bible:\n{json.dumps(story_bible, ensure_ascii=True)}\n\n"
+            f"Previous chapters:\n{chr(10).join(previous_chapters)}\n"
+            "Return only JSON."
+        )
+        response = await self._timed_chat(
+            "validate_continuity.llm",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2,
+            max_tokens=1200,
+            response_format={"type": "json_object"},
+        )
+        payload = self._safe_json(response)
+        return {"analysis": payload}
+
     def _build_graph(self):
         graph = StateGraph(NovelState)
         graph.add_node("collect_context", self.collect_context)
@@ -639,21 +667,76 @@ class WritingPipeline:
             limit=5,
         )
 
-        analyst_task = self.consistency_analyst.execute(
-            task_data={
-                "action": "analyze_chapter",
-                "chapter_text": chapter_text,
-                "memory_context": memory_context,
-                "story_bible": story_bible,
-                "previous_chapters": previous_chapters,
-            },
-            context=project_context,
-        )
+        analysis_error = None
+        if hasattr(self, "consistency_analyst") and self.consistency_analyst is not None:
+            analyst_task = self.consistency_analyst.execute(
+                task_data={
+                    "action": "analyze_chapter",
+                    "chapter_text": chapter_text,
+                    "memory_context": memory_context,
+                    "story_bible": story_bible,
+                    "previous_chapters": previous_chapters,
+                },
+                context=project_context,
+            )
+        else:
+            analyst_task = self._validate_with_llm(
+                chapter_text=chapter_text,
+                memory_context=memory_context,
+                story_bible=story_bible,
+                previous_chapters=previous_chapters,
+            )
+        analyst_timeout = float(settings.CONSISTENCY_ANALYST_TIMEOUT)
+        if analyst_timeout > 0:
+            analyst_task = asyncio.wait_for(analyst_task, timeout=analyst_timeout)
         graph_task = self._timed_graph_validation(state)
-        analyst_result, graph_payload = await asyncio.gather(analyst_task, graph_task)
+        analyst_result, graph_payload = await asyncio.gather(
+            analyst_task, graph_task, return_exceptions=True
+        )
 
-        analysis = analyst_result.get("analysis") or {}
-        validation = self._transform_analyst_result(analysis, state)
+        if isinstance(analyst_result, Exception):
+            analysis_error = str(analyst_result)
+            logger.error("Consistency analyst failed: %s", analyst_result)
+            try:
+                fallback_task = self._validate_with_llm(
+                    chapter_text=chapter_text,
+                    memory_context=memory_context,
+                    story_bible=story_bible,
+                    previous_chapters=previous_chapters,
+                )
+                if analyst_timeout > 0:
+                    analyst_result = await asyncio.wait_for(
+                        fallback_task, timeout=analyst_timeout
+                    )
+                else:
+                    analyst_result = await fallback_task
+                analysis_error = None
+            except Exception as exc:
+                analysis_error = f"Validation skipped: {exc}"
+                logger.exception("Fallback continuity validation failed")
+                analyst_result = {"analysis": {}}
+
+        if isinstance(graph_payload, Exception):
+            logger.error("Graph validation failed: %s", graph_payload)
+            graph_payload = {"graph_issues": []}
+
+        analysis = {}
+        if isinstance(analyst_result, dict):
+            analysis = analyst_result.get("analysis") or {}
+        if analysis:
+            if self._is_direct_validation_payload(analysis):
+                validation = self._normalize_direct_validation(analysis)
+            else:
+                validation = self._transform_analyst_result(analysis, state)
+        else:
+            validation = {
+                "severe_issues": [],
+                "minor_issues": [],
+                "coherence_score": float(settings.QUALITY_GATE_COHERENCE_THRESHOLD),
+                "blocking": False,
+                "blocking_issues": [],
+                "summary": "Validation sautee (analyse indisponible).",
+            }
 
         resolved_descriptions = self._get_resolved_contradictions(state)
         if resolved_descriptions:
@@ -683,12 +766,29 @@ class WritingPipeline:
         }
         plot_issues: List[Any] = []
         if required_plot_points or forbidden_actions:
-            plot_validation = await self._validate_plot_points(
-                chapter_text,
-                required_plot_points,
-                forbidden_actions,
-            )
-            plot_issues = plot_validation.get("issues") or []
+            try:
+                plot_timeout = float(settings.PLOT_VALIDATION_TIMEOUT)
+                plot_task = self._validate_plot_points(
+                    chapter_text,
+                    required_plot_points,
+                    forbidden_actions,
+                )
+                if plot_timeout > 0:
+                    plot_validation = await asyncio.wait_for(
+                        plot_task, timeout=plot_timeout
+                    )
+                else:
+                    plot_validation = await plot_task
+                plot_issues = plot_validation.get("issues") or []
+            except Exception:
+                logger.exception("Plot point validation failed")
+                plot_validation = {
+                    "covered_points": [],
+                    "missing_points": [],
+                    "forbidden_violations": [],
+                    "coverage_score": 0.0,
+                    "explanation": "Validation indisponible.",
+                }
         validation["plot_point_validation"] = {
             "covered_points": plot_validation.get("covered_points") or [],
             "missing_points": plot_validation.get("missing_points") or [],
@@ -755,6 +855,11 @@ class WritingPipeline:
                     await self._track_contradiction(project_id, issue, state.get("chapter_index"))
 
         alerts = self._build_continuity_alerts(validation)
+        if analysis_error:
+            alerts.append("Validation de coherence indisponible (analyseur).")
+        plot_explanation = validation.get("plot_point_validation", {}).get("explanation")
+        if plot_explanation == "Validation indisponible.":
+            alerts.append("Validation des points d'intrigue indisponible.")
         result = {"continuity_validation": validation, "continuity_alerts": alerts}
         self._log_duration("validate_continuity", start)
         return result
@@ -836,6 +941,30 @@ class WritingPipeline:
             "blocking": blocking,
             "blocking_issues": analysis.get("blocking_issues", []),
             "summary": analysis.get("summary", ""),
+        }
+
+    def _is_direct_validation_payload(self, analysis: Dict[str, Any]) -> bool:
+        return any(
+            key in analysis
+            for key in ("severe_issues", "minor_issues", "coherence_score", "blocking")
+        )
+
+    def _normalize_direct_validation(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        severe = payload.get("severe_issues") or []
+        minor = payload.get("minor_issues") or []
+        blocking = payload.get("blocking")
+        if blocking is None:
+            blocking = any(
+                isinstance(issue, dict) and issue.get("severity") in ("blocking", "critical")
+                for issue in severe
+            )
+        return {
+            "severe_issues": severe,
+            "minor_issues": minor,
+            "coherence_score": float(payload.get("coherence_score") or 0.0),
+            "blocking": bool(blocking),
+            "blocking_issues": payload.get("blocking_issues", []),
+            "summary": payload.get("summary", ""),
         }
 
     async def _get_previous_chapter_texts(

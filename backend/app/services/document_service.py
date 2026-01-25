@@ -5,7 +5,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException, status
 
-from app.models.document import Document
+from app.models.document import Document, DocumentType
 from app.models.project import Project
 from app.schemas.document import DocumentCreate, DocumentUpdate
 
@@ -115,6 +115,42 @@ class DocumentService:
         documents = result.scalars().all()
 
         return list(documents), total
+
+    async def get_chapter_by_index(
+        self,
+        project_id: UUID,
+        chapter_index: int,
+    ) -> Optional[Document]:
+        """
+        Get a chapter document by its logical chapter index.
+
+        The index is stored in document metadata ("chapter_index") when available,
+        otherwise it falls back to order_index + 1.
+        """
+        if not chapter_index or chapter_index < 1:
+            return None
+
+        result = await self.db.execute(
+            select(Document).where(
+                Document.project_id == project_id,
+                Document.document_type == DocumentType.CHAPTER,
+            )
+        )
+        documents = result.scalars().all()
+        for doc in documents:
+            metadata = doc.document_metadata or {}
+            raw_index = metadata.get("chapter_index")
+            if raw_index is None:
+                resolved_index = (doc.order_index + 1) if doc.order_index is not None else None
+            else:
+                try:
+                    resolved_index = int(raw_index)
+                except (TypeError, ValueError):
+                    resolved_index = (doc.order_index + 1) if doc.order_index is not None else None
+            if resolved_index == chapter_index:
+                return doc
+
+        return None
 
     async def create(
         self,

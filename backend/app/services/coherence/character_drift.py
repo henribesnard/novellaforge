@@ -18,9 +18,13 @@ class CharacterDriftDetector:
     without proper justification through events or development.
     """
 
-    def __init__(self) -> None:
-        self.llm_client = DeepSeekClient()
-        self.memory_service = MemoryService()
+    def __init__(
+        self,
+        llm_client: Optional[DeepSeekClient] = None,
+        memory_service: Optional[MemoryService] = None,
+    ) -> None:
+        self.llm_client = llm_client or DeepSeekClient()
+        self.memory_service = memory_service or MemoryService()
         self.enabled = settings.CHARACTER_DRIFT_ENABLED
         self.threshold = settings.CHARACTER_DRIFT_THRESHOLD
 

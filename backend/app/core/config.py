@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     VERSION: str = "1.0.0"
     APP_ENV: str = Field(default="development")
     DEBUG: bool = Field(default=True)
+    FEATURE_FLAG_NEW_ARCHITECTURE: bool = Field(default=False)
 
     # API Settings
     API_V1_PREFIX: str = "/api/v1"
@@ -116,6 +117,7 @@ class Settings(BaseSettings):
     CHROMA_PORT: Optional[int] = Field(default=None)
     CHROMA_PERSIST_DIR: str = Field(default="./chromadb")
     CHROMA_COLLECTION_PREFIX: str = Field(default="novellaforge")
+    CHROMA_ANONYMIZED_TELEMETRY: bool = Field(default=False)
 
     # DeepSeek API
     DEEPSEEK_API_KEY: str = Field(...)
@@ -123,6 +125,8 @@ class Settings(BaseSettings):
     DEEPSEEK_MODEL: str = "deepseek-chat"
     DEEPSEEK_REASONING_MODEL: str = "deepseek-reasoner"
     DEEPSEEK_TIMEOUT: float = Field(default=300.0)
+    DEEPSEEK_MAX_RETRIES: int = Field(default=2)
+    DEEPSEEK_RETRY_BACKOFF: float = Field(default=1.5)
     CHAT_MAX_TOKENS: int = Field(default=4096)
     CHAPTER_MIN_WORDS: int = Field(default=1200)
     CHAPTER_MAX_WORDS: int = Field(default=2000)
@@ -147,6 +151,8 @@ class Settings(BaseSettings):
     STORY_BIBLE_MAX_CHARS: int = Field(default=2500)
     VALIDATION_MAX_CHARS: int = Field(default=12000)
     VALIDATION_ALLOW_FALLBACK: bool = Field(default=False)
+    CONSISTENCY_ANALYST_TIMEOUT: float = Field(default=30.0)
+    PLOT_VALIDATION_TIMEOUT: float = Field(default=20.0)
     CRITIC_MAX_CHARS: int = Field(default=6000)
 
     # Embeddings
@@ -172,12 +178,25 @@ class Settings(BaseSettings):
     RAG_CHUNK_SIZE: int = 512
     RAG_CHUNK_OVERLAP: int = 50
     RAG_TOP_K: int = 5
+    RAG_PRELOAD_MODELS: bool = Field(default=False)
 
     # Rate Limiting
     RATE_LIMIT_PER_MINUTE: int = 60
 
     # Logging
     LOG_LEVEL: str = Field(default="INFO")
+
+    # Event Bus
+    EVENT_BUS_ENABLED: bool = Field(default=False)
+    EVENT_BUS_BACKEND: str = Field(default="redis")
+    EVENT_BUS_STREAM_PREFIX: str = Field(default="novellaforge:events")
+
+    # Observability
+    OBSERVABILITY_ENABLED: bool = Field(default=False)
+    METRICS_ENABLED: bool = Field(default=False)
+    METRICS_PATH: str = Field(default="/metrics")
+    STRUCTURED_LOGGING_ENABLED: bool = Field(default=False)
+    TRACING_ENABLED: bool = Field(default=False)
 
     # Coherence Settings - Phase 2: Mémoire Avancée
     RECURSIVE_MEMORY_ENABLED: bool = Field(default=True)
