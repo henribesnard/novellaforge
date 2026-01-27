@@ -164,7 +164,7 @@ class ConsistencyAnalyst(BaseAgent):
             "Sois exhaustif et precis dans ton analyse."
         )
 
-        response = await self._call_api(prompt, context, temperature=0.2)
+        response = await self._call_api(prompt, context=None, temperature=0.2)
         analysis = self._safe_json(response)
 
         # Filter contradictions that match intentional mysteries

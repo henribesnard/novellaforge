@@ -53,13 +53,16 @@ class BaseAgent(ABC):
             "Content-Type": "application/json",
         }
 
-        # Build context string if provided
+        # Build context string if provided (truncate large values)
         context_str = ""
         if context:
             context_str = "\n\nCONTEXTE:\n"
             for key, value in context.items():
                 if value:
-                    context_str += f"{key}: {value}\n"
+                    value_str = str(value)
+                    if len(value_str) > 2000:
+                        value_str = value_str[:2000] + "... [tronque]"
+                    context_str += f"{key}: {value_str}\n"
 
         messages = [
             {"role": "system", "content": self.system_prompt},

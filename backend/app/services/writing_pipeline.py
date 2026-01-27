@@ -695,8 +695,15 @@ class WritingPipeline:
         )
 
         if isinstance(analyst_result, Exception):
-            analysis_error = str(analyst_result)
-            logger.error("Consistency analyst failed: %s", analyst_result)
+            error_type = type(analyst_result).__name__
+            error_msg = str(analyst_result) or "(no message)"
+            analysis_error = f"{error_type}: {error_msg}"
+            logger.error(
+                "Consistency analyst failed [%s]: %s",
+                error_type,
+                error_msg,
+                exc_info=True,
+            )
             try:
                 fallback_task = self._validate_with_llm(
                     chapter_text=chapter_text,
