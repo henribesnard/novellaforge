@@ -127,7 +127,7 @@ export default function ProjectDetailPage() {
       const response = await acceptConcept(projectId, concept)
       setConcept(response.concept)
       setConceptStatus(response.status)
-      router.push('/dashboard/new')
+      router.push('/dashboard')
     } catch (err: any) {
       setError(err.message || 'Erreur lors de la validation du concept')
     }
@@ -155,7 +155,7 @@ export default function ProjectDetailPage() {
             {formatDate(project.created_at)}
           </p>
         </div>
-        <Button variant="outline" onClick={() => router.push('/dashboard/new')}>
+        <Button variant="outline" onClick={() => router.push('/dashboard')}>
           Retour au dashboard
         </Button>
       </div>
