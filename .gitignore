@@ -13,8 +13,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+/lib/
+/lib64/
 parts/
 sdist/
 var/
@@ -85,3 +85,15 @@ backend/full_output.txt
 backend/output_debug.txt
 backend/output_v2.txt
 backend/test_output.txt
+logs_generation.txt
+
+# Local data (Docker volumes)
+chromadb/
+
+# Windows artifacts
+nul
+
+# Plans et diagnostics temporaires
+PLAN_*.md
+DIAGNOSTIC_*.md
+CONSISTENCY_*.md

@@ -4,7 +4,7 @@ NovellaForge accompagne les auteurs francophones pour construire des romans long
 Le systeme combine une application web, un backend API et un pipeline IA oriente roman.
 
 ## Architecture technique
-- Frontend web: Next.js 15, TypeScript, Tailwind CSS.
+- Frontend web: Next.js 15, TypeScript, Tailwind CSS, architecture feature-based.
 - Backend API: FastAPI, Python 3.11, SQLAlchemy async.
 - Donnees: PostgreSQL (projets, documents, metadata).
 - Cache/queue: Redis, Celery (queues prioritaires).
@@ -13,13 +13,53 @@ Le systeme combine une application web, un backend API et un pipeline IA oriente
 - IA: DeepSeek + LangGraph + LangChain.
 - Uploads: stockage local via volume Docker.
 - Streaming: WebSocket pour generation temps reel.
+- Audio: Web Speech API (TTS navigateur) avec sanitisation markdown.
+
+## Structure du projet
+
+```
+NovellaForge/
+  backend/
+    app/
+      api/v1/          # Endpoints FastAPI
+      core/            # Config, securite, Celery
+      db/              # Session async, base SQLAlchemy
+      models/          # Modeles ORM (Project, Document, Character, ...)
+      schemas/         # Schemas Pydantic
+      services/        # Logique metier (writing_pipeline, memory, RAG, ...)
+    scripts/           # Scripts utilitaires (nettoyage, migration)
+    tests/             # Tests pytest
+  frontend/
+    src/
+      app/             # Pages Next.js (App Router)
+      features/        # Modules fonctionnels
+        audio/         # Lecteur TTS (ChapterAudioPlayer, controles, mini-player)
+        dashboard/     # Statistiques, vue d'ensemble
+        editor/        # Editeur de chapitre (TipTap)
+        projects/      # Carte projet, gestion chapitres
+        chat/          # Chat assistant IA
+      hooks/           # Hooks React (useSpeechSynthesis, useAudioKeyboard)
+      lib/             # Utilitaires (api-client, tts-sanitizer, utils)
+      components/ui/   # Composants generiques (Card, Button, Badge, ...)
+      types/           # Types TypeScript partages
+  docker-compose.yml   # Infrastructure complete (PostgreSQL, Redis, Qdrant, Neo4j, Chroma)
+```
 
 ## Fonctionnalites principales
+
 ### Roman long format
 - Generation de concept (premisse, tonalite, tropes, orientation emotionnelle).
 - Plan de roman (arcs et chapitres) editable.
 - Generation de chapitres avec critique et validation.
 - Rewrites guides par focus (pacing, romance, tension, etc.).
+
+### Lecture audio (TTS)
+- Lecteur audio integre par chapitre via Web Speech API.
+- Sanitisation automatique du markdown avant lecture (suppression `**`, `*`, `#`, `---`, etc.).
+- Controles: lecture/pause, stop, avance/recul rapide, vitesse, choix de voix.
+- Barre de progression avec seek.
+- Raccourcis clavier: Espace (lecture/pause), Fleches (avancer/reculer), Echap (stop).
+- Mini-player compact dans l'en-tete du chapitre.
 
 ### Memoire & coherence
 - Extraction automatique des faits (personnages, lieux, relations, evenements).
@@ -36,7 +76,8 @@ Le systeme combine une application web, un backend API et un pipeline IA oriente
 2. Generer ou saisir le concept, puis le plan.
 3. Lancer la generation d'un chapitre.
 4. Lire la critique et approuver le chapitre.
-5. La memoire est mise a jour automatiquement.
+5. Ecouter le chapitre via le lecteur audio integre.
+6. La memoire est mise a jour automatiquement.
 
 ## API (principaux endpoints)
 ### Auth
@@ -81,6 +122,16 @@ Acces:
 - Docs API: http://localhost:8002/api/docs
 - Health: http://localhost:8002/health
 
+## Scripts utilitaires
+
+### Nettoyage markdown des chapitres
+Supprime les artefacts markdown (`**`, `*`, `#`, `---`, etc.) du contenu des chapitres existants en base.
+
+```bash
+cd backend
+python -m scripts.clean_chapter_markdown
+```
+
 ## Configuration (.env)
 Variables cles:
 - DEEPSEEK_API_KEY, DEEPSEEK_API_BASE, DEEPSEEK_MODEL
@@ -122,6 +173,10 @@ Variables cles:
 #### Truncation intelligente
 - Priorisation: personnages mentionnes > evenements recents > relations > threads ouverts
 - Reduction du contexte sans perte de coherence
+
+#### Sanitisation TTS
+- Frontend: fonction `sanitizeForTTS()` avec 16 regles regex appliquees avant la synthese vocale
+- Backend: prompt LLM instruit de generer du texte narratif sans markdown
 
 ### Workers Celery
 
@@ -198,4 +253,5 @@ ws.onmessage = (e) => console.log(JSON.parse(e.data));
 ```
 
 ## Tests
-Backend: pytest (voir `backend/tests`).
+- Backend: `pytest` (voir `backend/tests`)
+- Frontend: `vitest` (voir `frontend/src/lib/__tests__`)

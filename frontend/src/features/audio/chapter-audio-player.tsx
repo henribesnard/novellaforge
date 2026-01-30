@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
+import { sanitizeForTTS } from '@/lib/tts-sanitizer';
 import { useAudioKeyboard } from '@/hooks/use-audio-keyboard';
 import { useSpeechSynthesis } from '@/hooks/use-speech-synthesis';
 import { AudioControls } from './audio-controls';
@@ -41,7 +42,8 @@ export function ChapterAudioPlayer({
   className,
 }: ChapterAudioPlayerProps) {
   const [expanded, setExpanded] = useState(defaultExpanded);
-  const hasContent = Boolean(content && content.trim().length > 0);
+  const cleanContent = useMemo(() => sanitizeForTTS(content ?? ''), [content]);
+  const hasContent = Boolean(cleanContent && cleanContent.trim().length > 0);
 
   const {
     state,
@@ -58,7 +60,7 @@ export function ChapterAudioPlayer({
     seekToPercent,
     skipForward,
     skipBackward,
-  } = useSpeechSynthesis({ chapterId, text: content ?? '' });
+  } = useSpeechSynthesis({ chapterId, text: cleanContent });
 
   const handlePlayPause = useCallback(() => {
     if (!hasContent || !isSupported) return;

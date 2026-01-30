@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import type { Editor } from '@tiptap/react'
 import { getDocuments } from '@/lib/api-extended'
+import { sanitizeForTTS } from '@/lib/tts-sanitizer'
 import { AudioErrorBoundary } from '@/features/audio'
 import { LazyChapterAudioPlayer } from '@/features/audio/lazy'
 import { ChapterEditor } from '@/features/editor'
@@ -63,7 +64,7 @@ export default function ChapterDetailPage() {
     return <p className="text-sm text-ink/60">Aucun chapitre selectionne.</p>
   }
 
-  const ttsContent = editorContent.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+  const ttsContent = sanitizeForTTS(editorContent)
 
   return (
     <div className="space-y-6">

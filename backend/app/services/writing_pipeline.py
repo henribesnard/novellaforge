@@ -409,6 +409,8 @@ class WritingPipeline:
             "Ecris en francais le chapitre suivant d'un roman feuilleton. "
             "Si des informations ci-dessous sont en anglais, adapte-les en francais. "
             "Paragraphes courts pour lecture mobile. Termine par un cliffhanger fort et une phrase complete.\n"
+            "IMPORTANT: Texte narratif uniquement. Pas de markdown, pas de ** ni * ni # ni --- ni listes a puces. "
+            "Pas de mise en forme, juste du texte brut avec des paragraphes separes par des sauts de ligne.\n"
             f"Objectif principal: environ {target_word_count} mots.\n"
             f"Objectif: {min_words}-{max_words} mots. Reste dans cette plage.\n"
             f"Titre du chapitre: {chapter_title}\n"
