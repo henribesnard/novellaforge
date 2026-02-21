@@ -4,7 +4,7 @@ from uuid import uuid4
 
 from fastapi import HTTPException
 
-from app.models.project import Genre
+
 from app.core.config import settings
 from app.services.novella_service import NovellaForgeService
 
@@ -54,7 +54,7 @@ async def test_generate_concept_respects_accepted(monkeypatch):
         owner_id=user_id,
         project_metadata=metadata,
         description="Existing description",
-        genre=Genre.ROMANCE,
+        genre="romance",
     )
     db = DummyDB()
     service = NovellaForgeService(db)
@@ -81,7 +81,7 @@ async def test_generate_concept_sets_description(monkeypatch):
         owner_id=user_id,
         project_metadata={},
         description=None,
-        genre=Genre.FANTASY,
+        genre="fantasy",
     )
     db = DummyDB()
     service = NovellaForgeService(db)
@@ -123,7 +123,7 @@ async def test_generate_plan_normalizes_fallback(monkeypatch):
             }
         },
         description="",
-        genre=Genre.THRILLER,
+        genre="thriller",
         target_word_count=6000,
     )
     db = DummyDB()
@@ -170,7 +170,7 @@ async def test_generate_plan_includes_plot_constraints(monkeypatch):
             }
         },
         description="",
-        genre=Genre.THRILLER,
+        genre="thriller",
         target_word_count=6000,
     )
     db = DummyDB()

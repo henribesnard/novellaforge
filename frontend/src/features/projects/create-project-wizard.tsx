@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { acceptConcept, createProject, generateConceptProposal } from '@/lib/api-extended'
-import { Genre, type ConceptPayload, type ProjectCreate } from '@/types'
+import { GENRE_SUGGESTIONS, NOVEL_SIZE_PRESETS, type ConceptPayload, type ProjectCreate } from '@/types'
 
 interface CreateProjectWizardProps {
   open: boolean
@@ -19,17 +19,7 @@ interface CreateProjectWizardProps {
   onSuccess: (projectId: string) => void
 }
 
-const GENRE_OPTIONS = [
-  { value: '', label: 'Selectionnez un genre principal' },
-  { value: Genre.WEREWOLF, label: 'Loup-garou' },
-  { value: Genre.BILLIONAIRE, label: 'Milliardaire' },
-  { value: Genre.MAFIA, label: 'Mafia' },
-  { value: Genre.FANTASY, label: 'Fantasy' },
-  { value: Genre.VENGEANCE, label: 'Vengeance' },
-  { value: Genre.ROMANCE, label: 'Romance' },
-  { value: Genre.THRILLER, label: 'Thriller' },
-  { value: Genre.OTHER, label: 'Autre' },
-]
+
 
 export function CreateProjectWizard({ open, onClose, onSuccess }: CreateProjectWizardProps) {
   const [isGenerating, setIsGenerating] = React.useState(false)
@@ -37,7 +27,8 @@ export function CreateProjectWizard({ open, onClose, onSuccess }: CreateProjectW
   const [error, setError] = React.useState<string>('')
   const [step, setStep] = React.useState<'genre' | 'concept'>('genre')
   const [formData, setFormData] = React.useState<ProjectCreate>({
-    genre: '' as Genre,
+    genre: '',
+    generation_mode: 'standard',
   })
   const [proposal, setProposal] = React.useState<ConceptPayload | null>(null)
   const [notes, setNotes] = React.useState('')
@@ -45,7 +36,7 @@ export function CreateProjectWizard({ open, onClose, onSuccess }: CreateProjectW
   const resetState = () => {
     setError('')
     setStep('genre')
-    setFormData({ genre: '' as Genre })
+    setFormData({ genre: '', generation_mode: 'standard' })
     setProposal(null)
     setNotes('')
     setIsGenerating(false)
@@ -69,8 +60,8 @@ export function CreateProjectWizard({ open, onClose, onSuccess }: CreateProjectW
   }
 
   const getGenreLabel = () => {
-    const match = GENRE_OPTIONS.find((option) => option.value === formData.genre)
-    return match?.label || 'Projet'
+    const match = GENRE_SUGGESTIONS.find((option) => option.value === formData.genre)
+    return match ? match.label : (formData.genre || 'Projet')
   }
 
   const handleGenerateProposal = async () => {
@@ -108,6 +99,10 @@ export function CreateProjectWizard({ open, onClose, onSuccess }: CreateProjectW
         genre: formData.genre,
         title,
         description: proposal.premise || undefined,
+        target_word_count: formData.target_word_count,
+        target_chapter_count: formData.target_chapter_count,
+        target_chapter_length: formData.target_chapter_length,
+        generation_mode: formData.generation_mode,
       })
       await acceptConcept(project.id, proposal)
       onSuccess(project.id)
@@ -133,11 +128,74 @@ export function CreateProjectWizard({ open, onClose, onSuccess }: CreateProjectW
               le ton, l'orientation emotionnelle et les tropes.
             </div>
 
+            <div>
+              <Input
+                label="Genre principal (ou saisie libre)"
+                value={formData.genre || ''}
+                onChange={(e) => setFormData({ ...formData, genre: e.target.value })}
+                placeholder="Ex: Fantasy, Cyberpunk..."
+                list="genre-suggestions"
+              />
+              <datalist id="genre-suggestions">
+                {GENRE_SUGGESTIONS.map((g) => (
+                  <option key={g.value} value={g.value}>
+                    {g.label}
+                  </option>
+                ))}
+              </datalist>
+            </div>
+
             <Select
-              label="Genre principal"
-              value={formData.genre || ''}
-              onChange={(e) => setFormData({ ...formData, genre: e.target.value as Genre })}
-              options={GENRE_OPTIONS}
+              label="Taille de l'œuvre"
+              value={formData.target_word_count?.toString() || ''}
+              onChange={(e) =>
+                setFormData({
+                  ...formData,
+                  target_word_count: e.target.value ? parseInt(e.target.value, 10) : undefined,
+                })
+              }
+              options={NOVEL_SIZE_PRESETS}
+            />
+
+            <div className="grid grid-cols-2 gap-4">
+              <Input
+                label="Nombre de chapitres cible"
+                type="number"
+                value={formData.target_chapter_count?.toString() || ''}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    target_chapter_count: e.target.value ? parseInt(e.target.value, 10) : undefined,
+                  })
+                }
+                placeholder="Ex: 30"
+              />
+              <Select
+                label="Taille moyenne d'un chapitre"
+                value={formData.target_chapter_length?.toString() || ''}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    target_chapter_length: e.target.value ? parseInt(e.target.value, 10) : undefined,
+                  })
+                }
+                options={[
+                  { value: '', label: 'Non défini' },
+                  { value: '1500', label: 'Court (~1500 mots)' },
+                  { value: '3000', label: 'Moyen (~3000 mots)' },
+                  { value: '5000', label: 'Long (~5000 mots)' },
+                ]}
+              />
+            </div>
+
+            <Select
+              label="Mode de création"
+              value={formData.generation_mode || 'standard'}
+              onChange={(e) => setFormData({ ...formData, generation_mode: e.target.value })}
+              options={[
+                { value: 'standard', label: 'Standard (Planification complète)' },
+                { value: 'lazy', label: 'Lazy (Lecture continue)' },
+              ]}
             />
 
             {error && (

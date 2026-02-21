@@ -1,0 +1,58 @@
+﻿
+
+Running 2 tests using 2 workers
+
+[1A[2K[1/2] [chromium] ÔÇ║ tests\e2e\project-creation.spec.ts:4:9 ÔÇ║ Project Creation Wizard ÔÇ║ should allow creating a project with custom genre, size, and lazy mode
+[1A[2K[2/2] [chromium] ÔÇ║ tests\e2e\lazy-mode.spec.ts:4:9 ÔÇ║ Lazy Mode Reader ÔÇ║ should allow generating a new chapter iteratively
+[1A[2K  1) [chromium] ÔÇ║ tests\e2e\lazy-mode.spec.ts:4:9 ÔÇ║ Lazy Mode Reader ÔÇ║ should allow generating a new chapter iteratively 
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
+
+    Locator: locator('.animate-spin').or(locator('text=├ëcriture en cours...'))
+    Expected: visible
+    Timeout: 10000ms
+    Error: element(s) not found
+
+    Call log:
+    [2m  - Expect "toBeVisible" with timeout 10000ms[22m
+    [2m  - waiting for locator('.animate-spin').or(locator('text=├ëcriture en cours...'))[22m
+
+
+      33 |         // Instead of text, look for the animate-spin element or the loading status div.
+      34 |         const statusSpinner = page.locator('.animate-spin').or(page.locator('text=├ëcriture en cours...'));
+    > 35 |         await expect(statusSpinner).toBeVisible({ timeout: 10000 });
+         |                                     ^
+      36 |     });
+      37 | });
+      38 |
+        at C:\Users\henri\Projets\NovellaForge\frontend\tests\e2e\lazy-mode.spec.ts:35:37
+
+    Error Context: test-results\lazy-mode-Lazy-Mode-Reader-5463b-g-a-new-chapter-iteratively-chromium\error-context.md
+
+
+[1A[2K  2) [chromium] ÔÇ║ tests\e2e\project-creation.spec.ts:4:9 ÔÇ║ Project Creation Wizard ÔÇ║ should allow creating a project with custom genre, size, and lazy mode 
+
+    [31mTest timeout of 30000ms exceeded.[39m
+
+    Error: locator.fill: Test timeout of 30000ms exceeded.
+    Call log:
+    [2m  - waiting for getByRole('dialog').getByPlaceholder('Ex: Fantasy, Cyberpunk...')[22m
+
+
+      40 |         // The Input component has a placeholder "Ex: Fantasy, Cyberpunk..."
+      41 |         const genreInput = dialog.getByPlaceholder('Ex: Fantasy, Cyberpunk...');
+    > 42 |         await genreInput.fill('Science-Fiction Cyberpunk');
+         |                          ^
+      43 |
+      44 |         // The component for "Nombre de chapitres cible"
+      45 |         const chapterCountInput = dialog.getByPlaceholder('Ex: 30');
+        at C:\Users\henri\Projets\NovellaForge\frontend\tests\e2e\project-creation.spec.ts:42:26
+
+    Error Context: test-results\project-creation-Project-C-054be-om-genre-size-and-lazy-mode-chromium\error-context.md
+
+
+[1A[2K  2 failed
+    [chromium] ÔÇ║ tests\e2e\lazy-mode.spec.ts:4:9 ÔÇ║ Lazy Mode Reader ÔÇ║ should allow generating a new chapter iteratively 
+    [chromium] ÔÇ║ tests\e2e\project-creation.spec.ts:4:9 ÔÇ║ Project Creation Wizard ÔÇ║ should allow creating a project with custom genre, size, and lazy mode 
+
+[36m  Serving HTML report at http://localhost:63604. Press Ctrl+C to quit.[39m

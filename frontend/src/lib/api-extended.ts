@@ -522,3 +522,107 @@ export async function downloadDocument(documentId: string): Promise<{ blob: Blob
 export async function downloadProject(projectId: string): Promise<{ blob: Blob; filename: string }> {
   return downloadFile(`/projects/${projectId}/download`, `project-${projectId}.zip`);
 }
+
+export async function lazyGenerateNext(
+  projectId: string,
+  instruction?: string,
+  targetWordCount?: number
+): Promise<{
+  success: boolean;
+  chapter_title: string;
+  content: string;
+  word_count: number;
+  document_id: string;
+}> {
+  return apiFetch('/writing/lazy-generate-next', {
+    method: 'POST',
+    body: JSON.stringify({
+      project_id: projectId,
+      instruction,
+      target_word_count: targetWordCount,
+    }),
+  });
+}
+
+/**
+ * Stream lazy chapter generation via WebSocket.
+ * Returns a close function to disconnect.
+ */
+export function lazyGenerateNextWs(
+  projectId: string,
+  options: {
+    instruction?: string;
+    targetWordCount?: number;
+    onStatus?: (message: string) => void;
+    onChunk?: (content: string, beatIndex: number) => void;
+    onComplete?: (data: {
+      chapter_title: string;
+      content: string;
+      document_id: string;
+      word_count: number;
+    }) => void;
+    onError?: (message: string) => void;
+  }
+): () => void {
+  const token = getAuthToken();
+  if (!token) {
+    options.onError?.('Not authenticated');
+    return () => { };
+  }
+
+  const wsBase = (process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8002/api/v1')
+    .replace(/^http/, 'ws');
+  const ws = new WebSocket(`${wsBase}/writing/ws/lazy-generate/${projectId}`);
+
+  ws.onopen = () => {
+    ws.send(
+      JSON.stringify({
+        token,
+        instruction: options.instruction,
+        target_word_count: options.targetWordCount,
+      })
+    );
+  };
+
+  ws.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      switch (data.type) {
+        case 'status':
+          options.onStatus?.(data.message);
+          break;
+        case 'chunk':
+          options.onChunk?.(data.content, data.beat_index);
+          break;
+        case 'complete':
+          options.onComplete?.({
+            chapter_title: data.chapter_title,
+            content: data.content,
+            document_id: data.document_id,
+            word_count: data.word_count,
+          });
+          break;
+        case 'error':
+          options.onError?.(data.message);
+          break;
+      }
+    } catch {
+      // Ignore parse errors
+    }
+  };
+
+  ws.onerror = () => {
+    options.onError?.('WebSocket connection error');
+  };
+
+  ws.onclose = () => {
+    // Closed
+  };
+
+  return () => {
+    if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+      ws.close();
+    }
+  };
+}
+

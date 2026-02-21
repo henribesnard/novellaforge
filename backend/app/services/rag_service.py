@@ -1,15 +1,33 @@
 """RAG service for indexing and retrieving project context."""
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from uuid import UUID
 import asyncio
 import logging
 import warnings
 
-from qdrant_client import QdrantClient
-from qdrant_client.http import models as qdrant_models
-from langchain_qdrant import Qdrant
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+try:
+    from qdrant_client import QdrantClient as _QdrantClient
+    from qdrant_client.http import models as _qdrant_models
+    _QDRANT_AVAILABLE = True
+    _QDRANT_IMPORT_ERROR: Exception | None = None
+except Exception as exc:  # pragma: no cover - defensive import
+    _QDRANT_AVAILABLE = False
+    _QDRANT_IMPORT_ERROR = exc
+    _QdrantClient = None
+    _qdrant_models = None
+
+try:
+    from langchain_qdrant import Qdrant as _Qdrant
+    from langchain_huggingface import HuggingFaceEmbeddings as _HuggingFaceEmbeddings
+    from langchain_text_splitters import RecursiveCharacterTextSplitter as _RecursiveCharacterTextSplitter
+    _RAG_DEPS_AVAILABLE = True
+    _RAG_IMPORT_ERROR: Exception | None = None
+except Exception as exc:  # pragma: no cover - defensive import
+    _RAG_DEPS_AVAILABLE = False
+    _RAG_IMPORT_ERROR = exc
+    _Qdrant = None
+    _HuggingFaceEmbeddings = None
+    _RecursiveCharacterTextSplitter = None
 
 from app.core.config import settings
 from app.models.document import Document
@@ -22,6 +40,23 @@ class RagService:
     """Index project documents into Qdrant and retrieve relevant chunks."""
 
     def __init__(self) -> None:
+        self.enabled = _QDRANT_AVAILABLE and _RAG_DEPS_AVAILABLE
+        self.disabled_reason: Optional[str] = None
+        self._logged_disabled = False
+        if not self.enabled:
+            reasons: List[str] = []
+            if not _QDRANT_AVAILABLE:
+                reasons.append(f"qdrant_client unavailable: {_QDRANT_IMPORT_ERROR}")
+            if not _RAG_DEPS_AVAILABLE:
+                reasons.append(f"langchain deps unavailable: {_RAG_IMPORT_ERROR}")
+            self.disabled_reason = "; ".join(reasons)
+            self.client = None
+            self.collection_name = settings.QDRANT_COLLECTION_NAME
+            self.embeddings = None
+            self.text_splitter = None
+            logger.warning("RAG disabled: %s", self.disabled_reason)
+            return
+
         if (
             settings.DEBUG
             and settings.QDRANT_API_KEY
@@ -31,24 +66,32 @@ class RagService:
                 "ignore",
                 message="Api key is used with an insecure connection",
             )
-        self.client = QdrantClient(url=settings.QDRANT_URL, api_key=settings.QDRANT_API_KEY)
+        self.client = _QdrantClient(url=settings.QDRANT_URL, api_key=settings.QDRANT_API_KEY)
         self.collection_name = settings.QDRANT_COLLECTION_NAME
-        self.embeddings = HuggingFaceEmbeddings(model_name=settings.EMBEDDING_MODEL)
-        self.text_splitter = RecursiveCharacterTextSplitter(
+        self.embeddings = _HuggingFaceEmbeddings(model_name=settings.EMBEDDING_MODEL)
+        self.text_splitter = _RecursiveCharacterTextSplitter(
             chunk_size=settings.RAG_CHUNK_SIZE,
             chunk_overlap=settings.RAG_CHUNK_OVERLAP,
         )
 
-    def _build_vector_store(self) -> Qdrant:
+    def _check_enabled(self, action: str) -> bool:
+        if not self.enabled:
+            if not self._logged_disabled:
+                logger.warning("RAG disabled, skipping %s. Reason: %s", action, self.disabled_reason)
+                self._logged_disabled = True
+            return False
+        return True
+
+    def _build_vector_store(self):
         """Create a Qdrant vector store instance with compatibility fallback."""
         try:
-            return Qdrant(
+            return _Qdrant(
                 client=self.client,
                 collection_name=self.collection_name,
                 embeddings=self.embeddings,
             )
         except TypeError:
-            return Qdrant(
+            return _Qdrant(
                 client=self.client,
                 collection_name=self.collection_name,
                 embedding=self.embeddings,
@@ -63,24 +106,28 @@ class RagService:
 
     def _ensure_collection(self) -> None:
         """Ensure the Qdrant collection exists."""
+        if not self._check_enabled("_ensure_collection"):
+            return
         if self.client.collection_exists(self.collection_name):
             return
 
         self.client.create_collection(
             collection_name=self.collection_name,
-            vectors_config=qdrant_models.VectorParams(
+            vectors_config=_qdrant_models.VectorParams(
                 size=settings.EMBEDDING_DIMENSION,
-                distance=qdrant_models.Distance.COSINE,
+                distance=_qdrant_models.Distance.COSINE,
             ),
         )
 
     def _delete_project_vectors(self, project_id: UUID) -> None:
         """Delete existing vectors for a project to avoid duplicates."""
-        project_filter = qdrant_models.Filter(
+        if not self._check_enabled("_delete_project_vectors"):
+            return
+        project_filter = _qdrant_models.Filter(
             must=[
-                qdrant_models.FieldCondition(
+                _qdrant_models.FieldCondition(
                     key="project_id",
-                    match=qdrant_models.MatchValue(value=str(project_id)),
+                    match=_qdrant_models.MatchValue(value=str(project_id)),
                 )
             ]
         )
@@ -91,15 +138,17 @@ class RagService:
 
     def _delete_document_vectors(self, project_id: UUID, document_id: UUID) -> None:
         """Delete existing vectors for a single document."""
-        document_filter = qdrant_models.Filter(
+        if not self._check_enabled("_delete_document_vectors"):
+            return
+        document_filter = _qdrant_models.Filter(
             must=[
-                qdrant_models.FieldCondition(
+                _qdrant_models.FieldCondition(
                     key="project_id",
-                    match=qdrant_models.MatchValue(value=str(project_id)),
+                    match=_qdrant_models.MatchValue(value=str(project_id)),
                 ),
-                qdrant_models.FieldCondition(
+                _qdrant_models.FieldCondition(
                     key="document_id",
-                    match=qdrant_models.MatchValue(value=str(document_id)),
+                    match=_qdrant_models.MatchValue(value=str(document_id)),
                 ),
             ]
         )
@@ -115,6 +164,8 @@ class RagService:
         clear_existing: bool = True,
     ) -> int:
         """Split and index documents into Qdrant. Returns number of chunks."""
+        if not self._check_enabled("index_documents"):
+            return 0
         self._ensure_collection()
 
         if clear_existing:
@@ -149,6 +200,8 @@ class RagService:
 
     def update_document(self, project_id: UUID, document: Document) -> int:
         """Update vectors for a single document."""
+        if not self._check_enabled("update_document"):
+            return 0
         self._ensure_collection()
         self._delete_document_vectors(project_id, document.id)
         if not document.content:
@@ -184,13 +237,15 @@ class RagService:
         top_k: int,
     ) -> List[str]:
         """Retrieve top-k relevant chunks for a project."""
+        if not self._check_enabled("retrieve"):
+            return []
         self._ensure_collection()
         vector_store = self._build_vector_store()
-        project_filter = qdrant_models.Filter(
+        project_filter = _qdrant_models.Filter(
             must=[
-                qdrant_models.FieldCondition(
+                _qdrant_models.FieldCondition(
                     key="project_id",
-                    match=qdrant_models.MatchValue(value=str(project_id)),
+                    match=_qdrant_models.MatchValue(value=str(project_id)),
                 )
             ]
         )
@@ -199,12 +254,14 @@ class RagService:
 
     def count_project_vectors(self, project_id: UUID) -> int:
         """Count vectors for a project."""
+        if not self._check_enabled("count_project_vectors"):
+            return 0
         self._ensure_collection()
-        project_filter = qdrant_models.Filter(
+        project_filter = _qdrant_models.Filter(
             must=[
-                qdrant_models.FieldCondition(
+                _qdrant_models.FieldCondition(
                     key="project_id",
-                    match=qdrant_models.MatchValue(value=str(project_id)),
+                    match=_qdrant_models.MatchValue(value=str(project_id)),
                 )
             ]
         )

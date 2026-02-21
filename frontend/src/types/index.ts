@@ -9,21 +9,27 @@ export enum ProjectStatus {
   ARCHIVED = 'archived',
 }
 
-export enum Genre {
-  WEREWOLF = 'werewolf',
-  BILLIONAIRE = 'billionaire',
-  MAFIA = 'mafia',
-  FANTASY = 'fantasy',
-  VENGEANCE = 'vengeance',
-  FICTION = 'fiction',
-  SCIFI = 'scifi',
-  THRILLER = 'thriller',
-  ROMANCE = 'romance',
-  MYSTERY = 'mystery',
-  HORROR = 'horror',
-  HISTORICAL = 'historical',
-  OTHER = 'other',
-}
+export const GENRE_SUGGESTIONS = [
+  { value: 'werewolf', label: 'Loup-garou' },
+  { value: 'billionaire', label: 'Milliardaire' },
+  { value: 'mafia', label: 'Mafia' },
+  { value: 'fantasy', label: 'Fantasy' },
+  { value: 'vengeance', label: 'Vengeance' },
+  { value: 'romance', label: 'Romance' },
+  { value: 'thriller', label: 'Thriller' },
+  { value: 'scifi', label: 'Science-Fiction' },
+  { value: 'mystery', label: 'Mystère' },
+  { value: 'horror', label: 'Horreur' },
+  { value: 'historical', label: 'Historique' },
+];
+
+export const NOVEL_SIZE_PRESETS = [
+  { value: '', label: 'Non défini' },
+  { value: '15000', label: 'Nouvelle (~15 000 mots)' },
+  { value: '50000', label: 'Roman Court (~50 000 mots)' },
+  { value: '80000', label: 'Roman Standard (~80 000 mots)' },
+  { value: '120000', label: 'Roman Épique (~120 000 mots)' },
+];
 
 export interface User {
   id: string;
@@ -36,9 +42,12 @@ export interface Project {
   id: string;
   title: string;
   description?: string;
-  genre?: Genre;
+  genre?: string;
   status: ProjectStatus;
   target_word_count?: number;
+  target_chapter_count?: number;
+  target_chapter_length?: number;
+  generation_mode: string;
   current_word_count: number;
   structure_template?: string;
   metadata: Record<string, any>;
@@ -48,20 +57,26 @@ export interface Project {
 }
 
 export interface ProjectCreate {
-  genre: Genre;
+  genre: string;
   title?: string;
   description?: string;
   target_word_count?: number;
+  target_chapter_count?: number;
+  target_chapter_length?: number;
+  generation_mode?: string;
   structure_template?: string;
 }
 
 export interface ProjectUpdate {
   title?: string;
   description?: string;
-  genre?: Genre;
+  genre?: string;
   status?: ProjectStatus;
   target_word_count?: number;
+  target_chapter_count?: number;
+  target_chapter_length?: number;
   current_word_count?: number;
+  generation_mode?: string;
   structure_template?: string;
   metadata?: Record<string, any>;
 }

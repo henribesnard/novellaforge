@@ -197,6 +197,8 @@ class WritingPipeline:
             target_word_count = state.get("target_word_count")
             if target_word_count:
                 target_word_count = int(target_word_count)
+            elif context.get("project", {}).get("target_chapter_length"):
+                target_word_count = int(context["project"]["target_chapter_length"])
             else:
                 target_word_count = int((min_words + max_words) / 2)
 
@@ -1094,6 +1096,235 @@ class WritingPipeline:
         }
         self._log_duration("generate_chapter", start)
         return response
+
+    # ------------------------------------------------------------------
+    # Lazy Mode: lightweight chapter generation (no critic / validation)
+    # ------------------------------------------------------------------
+
+    async def generate_chapter_lazy(
+        self,
+        project_id: UUID,
+        user_id: UUID,
+        chapter_index: int,
+        instruction: str | None = None,
+        target_word_count: int | None = None,
+    ) -> Dict[str, Any]:
+        """Generate a chapter using a lightweight JIT path for Lazy Mode.
+
+        Runs collect_context → retrieve_context → plan_chapter → write_chapter
+        and skips the heavy continuity validation + critic loop for speed.
+        Auto-persists and auto-approves the resulting chapter.
+        """
+        start = time.perf_counter()
+
+        state: NovelState = {
+            "project_id": project_id,
+            "user_id": user_id,
+            "chapter_index": chapter_index,
+            "chapter_instruction": instruction,
+            "target_word_count": target_word_count,
+            "use_rag": True,
+            "reindex_documents": False,
+            "create_document": True,
+            "auto_approve": True,
+            "max_revisions": 0,
+        }
+
+        # Step 1: Collect project context
+        ctx_update = await self.collect_context(state)
+        state.update(ctx_update)
+
+        # Step 2: Retrieve RAG + memory context
+        rag_update = await self.retrieve_context(state)
+        state.update(rag_update)
+
+        # Step 3: JIT plan (works without a global accepted plan)
+        plan_update = await self.plan_chapter(state)
+        state.update(plan_update)
+
+        # Step 4: Write chapter
+        write_update = await self.write_chapter(state)
+        state.update(write_update)
+
+        chapter_text = state.get("chapter_text", "")
+        word_count = self._count_words(chapter_text)
+
+        # Persist and auto-approve
+        document_id = await self._persist_draft(state, state, chapter_text, word_count)
+        if document_id:
+            await self.approve_chapter(document_id, user_id)
+
+        response = {
+            "chapter_title": state.get("chapter_title", f"Chapitre {chapter_index}"),
+            "chapter_text": chapter_text,
+            "document_id": document_id,
+            "word_count": word_count,
+        }
+        self._log_duration("generate_chapter_lazy", start)
+        return response
+
+    async def generate_chapter_lazy_stream(
+        self,
+        project_id: UUID,
+        user_id: UUID,
+        chapter_index: int,
+        instruction: str | None = None,
+        target_word_count: int | None = None,
+    ):
+        """Async generator that yields streaming events for Lazy Mode.
+
+        Yields dicts with:
+          {"type": "status", "message": "..."}
+          {"type": "chunk", "content": "..."}
+          {"type": "complete", "chapter_title": "...", "content": "...",
+           "document_id": "...", "word_count": N}
+        """
+        start = time.perf_counter()
+
+        state: NovelState = {
+            "project_id": project_id,
+            "user_id": user_id,
+            "chapter_index": chapter_index,
+            "chapter_instruction": instruction,
+            "target_word_count": target_word_count,
+            "use_rag": True,
+            "reindex_documents": False,
+            "create_document": True,
+            "auto_approve": True,
+            "max_revisions": 0,
+        }
+
+        yield {"type": "status", "message": "Collecte du contexte..."}
+        ctx_update = await self.collect_context(state)
+        state.update(ctx_update)
+
+        yield {"type": "status", "message": "Recherche dans la mémoire narrative..."}
+        rag_update = await self.retrieve_context(state)
+        state.update(rag_update)
+
+        yield {"type": "status", "message": "Planification du chapitre..."}
+        plan_update = await self.plan_chapter(state)
+        state.update(plan_update)
+
+        yield {"type": "status", "message": "Écriture en cours..."}
+
+        # Write chapter beat by beat, streaming each beat
+        plan_raw = state.get("current_plan")
+        plan: Dict[str, Any] = dict(plan_raw) if isinstance(plan_raw, dict) else {}
+        beats = plan.get("scene_beats") or ["Mise en place", "Montee en tension", "Revelation cliffhanger"]
+
+        project = state.get("project_context", {}).get("project", {})
+        concept = project.get("concept") or {}
+        chapter_title = state.get("chapter_title", f"Chapitre {chapter_index}")
+        min_words = settings.CHAPTER_MIN_WORDS
+        max_words = settings.CHAPTER_MAX_WORDS
+        tw = (
+            state.get("target_word_count")
+            or plan.get("estimated_word_count")
+            or int((min_words + max_words) / 2)
+        )
+        tw = max(min_words, min(max_words, int(tw)))
+        min_beat_words = settings.WRITE_MIN_BEAT_WORDS
+        per_beat_target = max(min_beat_words, int(tw / len(beats) * 0.85))
+
+        base_prompt = (
+            "Ecris en francais le chapitre suivant d'un roman feuilleton. "
+            "Si des informations ci-dessous sont en anglais, adapte-les en francais. "
+            "Paragraphes courts pour lecture mobile. Termine par un cliffhanger fort et une phrase complete.\n"
+            "IMPORTANT: Texte narratif uniquement. Pas de markdown, pas de ** ni * ni # ni --- ni listes a puces. "
+            "Pas de mise en forme, juste du texte brut avec des paragraphes separes par des sauts de ligne.\n"
+            f"Objectif principal: environ {tw} mots.\n"
+            f"Objectif: {min_words}-{max_words} mots. Reste dans cette plage.\n"
+            f"Titre du chapitre: {chapter_title}\n"
+            f"Resume du chapitre: {state.get('chapter_summary', '')}\n"
+            f"Enjeu emotionnel: {state.get('chapter_emotional_stake', '')}\n"
+            f"Emotion cible: {plan.get('target_emotion', '')}\n"
+            f"Type de cliffhanger: {plan.get('cliffhanger_type', '')}\n"
+            f"Premisse: {concept.get('premise', '')}\n"
+            f"Ton: {concept.get('tone', '')}\n"
+            f"Tropes: {', '.join(concept.get('tropes', []))}\n"
+        )
+
+        memory_context = self._truncate_text(state.get("memory_context", ""), settings.MEMORY_CONTEXT_MAX_CHARS)
+        base_prompt += f"Contexte memoire:\n{memory_context}\n"
+
+        rag_block = "\n\n".join(state.get("retrieved_chunks", [])[:3])
+        rag_block = self._truncate_text(rag_block, settings.RAG_CONTEXT_MAX_CHARS)
+        if rag_block:
+            base_prompt += f"Extraits pertinents:\n{rag_block}\n"
+
+        if instruction:
+            base_prompt += f"Instruction utilisateur:\n- {instruction}\n"
+
+        beat_outline = self._build_beats_outline(beats)
+
+        content = ""
+        current_words = 0
+        beat_texts = []
+
+        for idx, beat in enumerate(beats):
+            beats_left = len(beats) - idx
+            remaining_target = max(tw - current_words, 0)
+            if remaining_target == 0:
+                beat_target = max(min_beat_words, int(per_beat_target * 0.5))
+            else:
+                dynamic_target = max(min_beat_words, int(remaining_target / beats_left))
+                beat_target = max(min_beat_words, min(per_beat_target, dynamic_target))
+
+            continuation_hint = self._build_continuation_hint(content)
+            beat_prompt = self._build_beat_prompt(
+                base_prompt=base_prompt,
+                beat_outline=beat_outline,
+                beat=beat,
+                beat_index=idx,
+                total_beats=len(beats),
+                beat_target=beat_target,
+                current_words=current_words,
+                remaining_target=remaining_target,
+                max_words=max_words,
+                continuation_hint=continuation_hint,
+            )
+
+            part = await self._timed_chat(
+                f"lazy_stream.beat_{idx + 1}",
+                messages=[
+                    {"role": "system", "content": "Tu es un auteur de fiction feuilleton."},
+                    {"role": "user", "content": beat_prompt},
+                ],
+                temperature=0.7,
+                max_tokens=self._max_tokens_for_words(beat_target),
+            )
+            part = (part or "").strip()
+            if not part:
+                break
+
+            beat_texts.append(part)
+            content = f"{content}\n\n{part}" if content else part
+            current_words = self._count_words(content)
+
+            # Yield each beat as a chunk
+            yield {"type": "chunk", "content": part, "beat_index": idx}
+
+            if current_words >= int(tw * settings.WRITE_EARLY_STOP_RATIO):
+                break
+
+        # Persist and auto-approve
+        state["chapter_text"] = content
+        state["beat_texts"] = beat_texts
+        word_count = self._count_words(content)
+
+        document_id = await self._persist_draft(state, state, content, word_count)
+        if document_id:
+            await self.approve_chapter(document_id, user_id)
+
+        yield {
+            "type": "complete",
+            "chapter_title": chapter_title,
+            "content": content,
+            "document_id": document_id,
+            "word_count": word_count,
+        }
+        self._log_duration("generate_chapter_lazy_stream", start)
 
     async def approve_chapter(self, document_id: str, user_id: UUID) -> Dict[str, Any]:
         start = time.perf_counter()

@@ -6,7 +6,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.api.v1.endpoints import projects as projects_module
-from app.models.project import Genre
+
 from app.schemas.novella import (
     ArcPlan,
     ChapterPlan,
@@ -337,7 +337,7 @@ async def test_generate_concept_proposal(monkeypatch):
     monkeypatch.setattr(projects_module, "NovellaForgeService", DummyNovellaService)
 
     result = await projects_module.generate_concept_proposal(
-        payload=projects_module.ConceptProposalRequest(genre=Genre.FANTASY, notes=None),
+        payload=projects_module.ConceptProposalRequest(genre="fantasy", notes=None),
         db=None,
         current_user=current_user,
     )

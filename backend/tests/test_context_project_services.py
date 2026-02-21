@@ -6,7 +6,7 @@ from fastapi import HTTPException
 
 from app.core.config import settings
 from app.models.document import DocumentType
-from app.models.project import Genre, ProjectStatus
+from app.models.project import ProjectStatus
 from app.schemas.project import ProjectCreate, ProjectUpdate
 from app.services.context_service import ProjectContextService
 from app.services.project_service import ProjectService
@@ -87,7 +87,7 @@ async def test_build_project_context_includes_metadata_and_instructions():
         owner_id=user_id,
         title="Projet test",
         description="Desc",
-        genre=Genre.FANTASY,
+        genre="fantasy",
         status=ProjectStatus.DRAFT,
         target_word_count=10000,
         current_word_count=1200,
@@ -152,7 +152,7 @@ async def test_build_project_context_raises_on_missing_project():
 async def test_project_service_create_sets_defaults():
     db = DummyDB()
     service = ProjectService(db)
-    payload = ProjectCreate(genre=Genre.FANTASY, title=None, description="Desc")
+    payload = ProjectCreate(genre="fantasy", title=None, description="Desc")
 
     project = await service.create(payload, user_id=uuid4())
 
@@ -190,7 +190,7 @@ async def test_build_project_context_handles_flat_concept_and_plan():
         owner_id=user_id,
         title="Project",
         description="Desc",
-        genre=Genre.FANTASY,
+        genre="fantasy",
         status=ProjectStatus.DRAFT,
         target_word_count=10000,
         current_word_count=1200,
@@ -226,7 +226,7 @@ async def test_build_project_context_handles_non_dict_metadata():
         owner_id=user_id,
         title="Project",
         description="Desc",
-        genre=Genre.FANTASY,
+        genre="fantasy",
         status=ProjectStatus.DRAFT,
         target_word_count=10000,
         current_word_count=1200,
@@ -263,7 +263,7 @@ async def test_project_service_update_applies_metadata(monkeypatch):
         owner_id=uuid4(),
         title="Ancien",
         description="",
-        genre=Genre.ROMANCE,
+        genre="romance",
         status=ProjectStatus.DRAFT,
         target_word_count=5000,
         current_word_count=120,

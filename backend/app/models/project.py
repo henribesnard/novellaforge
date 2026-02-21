@@ -34,21 +34,7 @@ class ProjectStatus(str, enum.Enum):
     ARCHIVED = "archived"
 
 
-class Genre(str, enum.Enum):
-    """Genre enumeration"""
-    WEREWOLF = "werewolf"
-    BILLIONAIRE = "billionaire"
-    MAFIA = "mafia"
-    FANTASY = "fantasy"
-    VENGEANCE = "vengeance"
-    FICTION = "fiction"
-    SCIFI = "scifi"
-    THRILLER = "thriller"
-    ROMANCE = "romance"
-    MYSTERY = "mystery"
-    HORROR = "horror"
-    HISTORICAL = "historical"
-    OTHER = "other"
+
 
 
 class Project(Base):
@@ -58,15 +44,18 @@ class Project(Base):
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    genre: Mapped[Optional[Genre]] = mapped_column(Enum(Genre), nullable=True)
+    genre: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     status: Mapped[ProjectStatus] = mapped_column(
         Enum(ProjectStatus),
         default=ProjectStatus.DRAFT,
         nullable=False,
     )
+    generation_mode: Mapped[str] = mapped_column(String(20), default="standard", nullable=False)
 
     # Metadata
     target_word_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    target_chapter_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    target_chapter_length: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     current_word_count: Mapped[int] = mapped_column(Integer, default=0)
 
     # Structure

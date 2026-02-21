@@ -11,7 +11,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.project import Project, Genre
+from app.models.project import Project
 from app.services.llm_client import DeepSeekClient
 from app.core.config import settings
 
@@ -146,15 +146,8 @@ class NovellaForgeService:
     async def _get_recent_titles(self, user_id: Optional[UUID], genre: str, limit: int = 8) -> List[str]:
         if not user_id:
             return []
-        try:
-            genre_enum = Genre(genre)
-        except ValueError:
-            genre_enum = None
         query = select(Project.title).where(Project.owner_id == user_id)
-        if genre_enum:
-            query = query.where(Project.genre == genre_enum)
-        else:
-            query = query.where(Project.genre == genre)
+        query = query.where(Project.genre == genre)
         query = query.order_by(Project.created_at.desc()).limit(limit)
         result = await self.db.execute(query)
         return [row[0] for row in result.fetchall() if row and row[0]]
@@ -223,7 +216,7 @@ class NovellaForgeService:
         if concept_entry and not force and concept_entry.get("status") == "accepted":
             return concept_entry
 
-        genre = project.genre.value if project.genre else "fiction"
+        genre = project.genre if project.genre else "fiction"
         concept = await self.generate_concept_preview(genre, user_id=user_id)
 
         concept_entry = {
@@ -297,13 +290,13 @@ class NovellaForgeService:
                 detail="Concept non accepte",
             )
         concept = concept_entry.get("data") or {}
-        genre = project.genre.value if project.genre else "fiction"
+        genre = project.genre if project.genre else "fiction"
         genre_label = self._genre_label(genre)
         target_words = project.target_word_count or 200000
         chapter_min = self._get_chapter_min(metadata)
         chapter_max = self._get_chapter_max(metadata)
-        average_chapter = int((chapter_min + chapter_max) / 2)
-        default_chapter_count = max(30, math.ceil(target_words / average_chapter))
+        average_chapter = project.target_chapter_length or int((chapter_min + chapter_max) / 2)
+        default_chapter_count = project.target_chapter_count or max(30, math.ceil(target_words / average_chapter))
         chapter_count = chapter_count or default_chapter_count
         arc_count = arc_count or max(3, min(10, math.ceil(chapter_count / 15)))
 

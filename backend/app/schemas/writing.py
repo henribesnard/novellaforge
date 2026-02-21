@@ -102,3 +102,19 @@ class PregeneratePlansResponse(BaseModel):
     status: str
     chapters_to_plan: int
     task_id: Optional[str] = None
+
+
+class LazyGenerationRequest(BaseModel):
+    """Request to generate the next chapter in lazy reading mode."""
+    project_id: UUID
+    instruction: Optional[str] = None
+    target_word_count: Optional[int] = Field(None, ge=100)
+
+
+class LazyGenerationResponse(BaseModel):
+    """Response for a lazy generated chapter."""
+    success: bool
+    chapter_title: str
+    content: str
+    word_count: int
+    document_id: str

@@ -24,6 +24,9 @@ class DummyResult:
     def scalar_one_or_none(self):
         return self._scalar
 
+    def scalar(self):
+        return self._scalar
+
     def scalars(self):
         return DummyScalars(self._scalars)
 
@@ -200,3 +203,78 @@ async def test_approve_chapter_success(monkeypatch):
 
     assert result.success is True
     assert result.status == "approved"
+
+
+@pytest.mark.asyncio
+async def test_lazy_generate_next_success(monkeypatch):
+    project_id = uuid4()
+    owner_id = uuid4()
+    project = SimpleNamespace(
+        id=project_id,
+        owner_id=owner_id,
+        project_metadata={},
+        generation_mode="lazy",
+    )
+    # First query: _verify_project_access, second: func.max(order_index)
+    db = DummyDB(results=[DummyResult(scalar=project), DummyResult(scalar=0)])
+
+    captured = {}
+
+    class DummyPipeline:
+        def __init__(self, db):
+            self.db = db
+
+        async def generate_chapter_lazy(self, **kwargs):
+            captured.update(kwargs)
+            return {
+                "chapter_title": "Chapitre 1",
+                "chapter_text": "Il etait une fois...",
+                "document_id": str(uuid4()),
+                "word_count": 500,
+            }
+
+    monkeypatch.setattr(writing_module, "WritingPipeline", DummyPipeline)
+
+    from app.schemas.writing import LazyGenerationRequest
+
+    result = await writing_module.lazy_generate_next(
+        LazyGenerationRequest(project_id=project_id),
+        db=db,
+        current_user=SimpleNamespace(id=owner_id),
+    )
+
+    assert result.success is True
+    assert result.chapter_title == "Chapitre 1"
+    assert result.word_count == 500
+    assert captured["chapter_index"] == 1
+
+
+@pytest.mark.asyncio
+async def test_lazy_generate_next_missing_document(monkeypatch):
+    project_id = uuid4()
+    owner_id = uuid4()
+    project = SimpleNamespace(
+        id=project_id,
+        owner_id=owner_id,
+        project_metadata={},
+    )
+    db = DummyDB(results=[DummyResult(scalar=project), DummyResult(scalar=0)])
+
+    class DummyPipeline:
+        def __init__(self, db):
+            self.db = db
+
+        async def generate_chapter_lazy(self, **kwargs):
+            return {"chapter_title": "Titre", "chapter_text": "", "word_count": 0}
+
+    monkeypatch.setattr(writing_module, "WritingPipeline", DummyPipeline)
+
+    from app.schemas.writing import LazyGenerationRequest
+
+    with pytest.raises(HTTPException) as exc_info:
+        await writing_module.lazy_generate_next(
+            LazyGenerationRequest(project_id=project_id),
+            db=db,
+            current_user=SimpleNamespace(id=owner_id),
+        )
+    assert exc_info.value.status_code == 500

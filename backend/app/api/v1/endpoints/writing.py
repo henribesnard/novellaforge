@@ -5,7 +5,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status, WebSocket, WebSocketDisconnect, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 
 from app.db.session import get_db
 from app.models.user import User
@@ -23,6 +23,8 @@ from app.schemas.writing import (
     ChapterApprovalResponse,
     PregeneratePlansRequest,
     PregeneratePlansResponse,
+    LazyGenerationRequest,
+    LazyGenerationResponse,
 )
 from app.services.rag_service import RagService
 from app.services.writing_pipeline import WritingPipeline
@@ -443,3 +445,136 @@ async def pregenerate_plans(
         status="started",
         chapters_to_plan=request.count,
     )
+
+
+@router.post("/lazy-generate-next", response_model=LazyGenerationResponse)
+async def lazy_generate_next(
+    request: LazyGenerationRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Generate and automatically approve the next chapter in Lazy Mode."""
+    project = await _verify_project_access(db, request.project_id, current_user.id)
+
+    # Calculate next chapter index
+    docs_result = await db.execute(
+        select(func.max(Document.order_index)).where(
+            Document.project_id == request.project_id,
+            Document.document_type == "chapter",
+        )
+    )
+    max_index = docs_result.scalar() or 0
+    next_index = max_index + 1
+
+    pipeline = WritingPipeline(db)
+    gen_result = await pipeline.generate_chapter_lazy(
+        project_id=request.project_id,
+        user_id=current_user.id,
+        chapter_index=next_index,
+        instruction=request.instruction,
+        target_word_count=request.target_word_count,
+    )
+
+    doc_id = gen_result.get("document_id")
+    if not doc_id:
+        raise HTTPException(status_code=500, detail="Echec de la creation du document en mode lazy")
+
+    return LazyGenerationResponse(
+        success=True,
+        chapter_title=gen_result.get("chapter_title", f"Chapitre {next_index}"),
+        content=gen_result.get("chapter_text", ""),
+        word_count=gen_result.get("word_count", 0),
+        document_id=str(doc_id),
+    )
+
+
+@router.websocket("/ws/lazy-generate/{project_id}")
+async def websocket_lazy_generate(
+    websocket: WebSocket,
+    project_id: UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    WebSocket endpoint for streaming chapter generation in Lazy Mode.
+
+    Client should send a JSON message with:
+    {
+        "token": "jwt_token",
+        "instruction": "...",  // optional
+        "target_word_count": 1500  // optional
+    }
+
+    Server sends:
+    - {"type": "status", "message": "..."} for status updates
+    - {"type": "chunk", "content": "...", "beat_index": N} for text chunks
+    - {"type": "complete", "chapter_title": "...", "content": "...",
+       "document_id": "...", "word_count": N} when done
+    - {"type": "error", "message": "..."} on error
+    """
+    await websocket.accept()
+
+    try:
+        # Wait for initial message with auth token and params
+        init_message = await websocket.receive_json()
+        token = init_message.get("token")
+        if not token:
+            await websocket.send_json({"type": "error", "message": "Token required"})
+            await websocket.close()
+            return
+
+        # Authenticate user
+        try:
+            user = await get_user_from_token(token, db)
+            if not user:
+                await websocket.send_json({"type": "error", "message": "Invalid token"})
+                await websocket.close()
+                return
+        except Exception:
+            await websocket.send_json({"type": "error", "message": "Authentication failed"})
+            await websocket.close()
+            return
+
+        # Verify project access
+        result = await db.execute(
+            select(Project).where(Project.id == project_id, Project.owner_id == user.id)
+        )
+        project = result.scalar_one_or_none()
+        if not project:
+            await websocket.send_json({"type": "error", "message": "Project not found"})
+            await websocket.close()
+            return
+
+        # Calculate next chapter index
+        docs_result = await db.execute(
+            select(func.max(Document.order_index)).where(
+                Document.project_id == project_id,
+                Document.document_type == "chapter",
+            )
+        )
+        max_index = docs_result.scalar() or 0
+        next_index = max_index + 1
+
+        # Stream generation
+        pipeline = WritingPipeline(db)
+        async for event in pipeline.generate_chapter_lazy_stream(
+            project_id=project_id,
+            user_id=user.id,
+            chapter_index=next_index,
+            instruction=init_message.get("instruction"),
+            target_word_count=init_message.get("target_word_count"),
+        ):
+            await websocket.send_json(event)
+
+    except WebSocketDisconnect:
+        logger.info(f"Lazy WebSocket disconnected for project {project_id}")
+    except Exception as e:
+        logger.exception(f"Lazy WebSocket error for project {project_id}")
+        try:
+            await websocket.send_json({"type": "error", "message": str(e)})
+        except Exception:
+            pass
+    finally:
+        try:
+            await websocket.close()
+        except Exception:
+            pass

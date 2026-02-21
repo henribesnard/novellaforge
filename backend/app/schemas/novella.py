@@ -7,7 +7,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from app.models.project import Genre
+
 
 
 class ConceptGenerateRequest(BaseModel):
@@ -25,7 +25,7 @@ class ConceptPayload(BaseModel):
 
 class ConceptProposalRequest(BaseModel):
     """Request to generate a concept proposal before project creation."""
-    genre: Genre
+    genre: str
     notes: Optional[str] = None
 
 

@@ -4,36 +4,45 @@ from datetime import datetime
 from pydantic import BaseModel, Field, ConfigDict
 from uuid import UUID
 
-from app.models.project import ProjectStatus, Genre
+from app.models.project import ProjectStatus
 
 
 class ProjectBase(BaseModel):
     """Base project schema"""
     title: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = None
-    genre: Optional[Genre] = None
+    genre: Optional[str] = Field(None, max_length=100)
     target_word_count: Optional[int] = Field(None, gt=0)
+    target_chapter_count: Optional[int] = Field(None, gt=0)
+    target_chapter_length: Optional[int] = Field(None, gt=0)
     structure_template: Optional[str] = None
+    generation_mode: Optional[str] = "standard"
 
 
 class ProjectCreate(BaseModel):
     """Schema for creating a new project"""
-    genre: Genre
+    genre: str = Field(..., min_length=1, max_length=100)
     title: Optional[str] = Field(default=None, min_length=1, max_length=255)
     description: Optional[str] = None
     target_word_count: Optional[int] = Field(None, gt=0)
+    target_chapter_count: Optional[int] = Field(None, gt=0)
+    target_chapter_length: Optional[int] = Field(None, gt=0)
     structure_template: Optional[str] = None
+    generation_mode: Optional[str] = "standard"
 
 
 class ProjectUpdate(BaseModel):
     """Schema for updating project"""
     title: Optional[str] = Field(None, min_length=1, max_length=255)
     description: Optional[str] = None
-    genre: Optional[Genre] = None
+    genre: Optional[str] = Field(None, max_length=100)
     status: Optional[ProjectStatus] = None
     target_word_count: Optional[int] = Field(None, gt=0)
+    target_chapter_count: Optional[int] = Field(None, gt=0)
+    target_chapter_length: Optional[int] = Field(None, gt=0)
     current_word_count: Optional[int] = Field(None, ge=0)
     structure_template: Optional[str] = None
+    generation_mode: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = Field(
         default=None,
         validation_alias="project_metadata",
@@ -64,6 +73,7 @@ class ProjectResponse(ProjectBase):
     id: UUID
     status: ProjectStatus
     current_word_count: int
+    generation_mode: str
     metadata: Dict[str, Any] = Field(
         default_factory=dict,
         validation_alias="project_metadata",
