@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import Any, Dict
 from uuid import UUID, uuid4
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 import io
 import re
@@ -92,9 +92,9 @@ def _save_instructions(project, instructions: list[dict]) -> None:
 def _serialize_instruction(raw: dict) -> InstructionResponse:
     created_at_value = raw.get("created_at")
     try:
-        created_at = datetime.fromisoformat(created_at_value) if created_at_value else datetime.utcnow()
+        created_at = datetime.fromisoformat(created_at_value) if created_at_value else datetime.now(timezone.utc)
     except ValueError:
-        created_at = datetime.utcnow()
+        created_at = datetime.now(timezone.utc)
     return InstructionResponse(
         id=UUID(str(raw.get("id"))),
         title=str(raw.get("title")),
@@ -114,9 +114,9 @@ def _safe_filename(value: str, fallback: str) -> str:
 def _serialize_concept(project_id: UUID, entry: dict) -> ConceptResponse:
     updated_at_value = entry.get("updated_at")
     try:
-        updated_at = datetime.fromisoformat(updated_at_value) if updated_at_value else datetime.utcnow()
+        updated_at = datetime.fromisoformat(updated_at_value) if updated_at_value else datetime.now(timezone.utc)
     except ValueError:
-        updated_at = datetime.utcnow()
+        updated_at = datetime.now(timezone.utc)
     concept_data = entry.get("data") if isinstance(entry.get("data"), dict) else None
     if not concept_data and any(
         key in entry for key in ("title", "premise", "tone", "tropes", "emotional_orientation")
@@ -141,9 +141,9 @@ def _serialize_concept(project_id: UUID, entry: dict) -> ConceptResponse:
 def _serialize_plan(project_id: UUID, entry: dict) -> PlanResponse:
     updated_at_value = entry.get("updated_at")
     try:
-        updated_at = datetime.fromisoformat(updated_at_value) if updated_at_value else datetime.utcnow()
+        updated_at = datetime.fromisoformat(updated_at_value) if updated_at_value else datetime.now(timezone.utc)
     except ValueError:
-        updated_at = datetime.utcnow()
+        updated_at = datetime.now(timezone.utc)
     plan_data = entry.get("data") if isinstance(entry.get("data"), dict) else None
     if not plan_data and any(key in entry for key in ("chapters", "arcs", "global_summary")):
         plan_data = {
@@ -172,9 +172,9 @@ def _serialize_plan(project_id: UUID, entry: dict) -> PlanResponse:
 def _serialize_synopsis(project_id: UUID, entry: dict) -> SynopsisResponse:
     updated_at_value = entry.get("updated_at")
     try:
-        updated_at = datetime.fromisoformat(updated_at_value) if updated_at_value else datetime.utcnow()
+        updated_at = datetime.fromisoformat(updated_at_value) if updated_at_value else datetime.now(timezone.utc)
     except ValueError:
-        updated_at = datetime.utcnow()
+        updated_at = datetime.now(timezone.utc)
     synopsis_text = entry.get("text") if isinstance(entry, dict) else None
     if not synopsis_text and isinstance(entry, dict):
         synopsis_text = entry.get("synopsis")
@@ -462,7 +462,7 @@ async def resolve_contradiction(
         "type": resolution.type,
         "action_taken": resolution.action_taken,
         "resolved_by": str(current_user.id),
-        "resolved_at": datetime.utcnow().isoformat(),
+        "resolved_at": datetime.now(timezone.utc).isoformat(),
         "bible_update": resolution.bible_update,
     }
 
@@ -515,7 +515,7 @@ async def mark_contradiction_intentional(
         "type": "intentional",
         "action_taken": payload.explanation,
         "resolved_by": str(current_user.id),
-        "resolved_at": datetime.utcnow().isoformat(),
+        "resolved_at": datetime.now(timezone.utc).isoformat(),
         "bible_update": payload.bible_update,
     }
 
@@ -603,10 +603,12 @@ async def download_project(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
 
     documents_result = await db.execute(
-        select(Document).where(Document.project_id == project_id).order_by(Document.order_index.asc())
+        select(Document).where(
+            Document.project_id == project_id,
+            Document.document_type == DocumentType.CHAPTER,
+        ).order_by(Document.order_index.asc())
     )
-    documents = documents_result.scalars().all()
-    chapters = [doc for doc in documents if doc.document_type == DocumentType.CHAPTER]
+    chapters = documents_result.scalars().all()
 
     used_names: set[str] = set()
     archive_buffer = io.BytesIO()
@@ -762,7 +764,7 @@ async def create_instruction(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
 
     instruction_id = uuid4()
-    created_at = datetime.utcnow().isoformat()
+    created_at = datetime.now(timezone.utc).isoformat()
     instruction = {
         "id": str(instruction_id),
         "title": payload.title,
@@ -990,11 +992,11 @@ async def generate_concept_proposal(
     current_user: User = Depends(get_current_active_user),
 ):
     service = NovellaForgeService(db)
-    concept = await service.generate_concept_preview(payload.genre.value, payload.notes, user_id=current_user.id)
+    concept = await service.generate_concept_preview(payload.genre, payload.notes, user_id=current_user.id)
     return ConceptProposalResponse(
         status="draft",
         concept=ConceptPayload(**concept),
-        updated_at=datetime.utcnow(),
+        updated_at=datetime.now(timezone.utc),
     )
 
 
@@ -1075,11 +1077,11 @@ async def accept_plan(
         plan_entry = {
             "data": plan_entry,
             "status": "accepted",
-            "updated_at": datetime.utcnow().isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
         }
     else:
         plan_entry["status"] = "accepted"
-        plan_entry["updated_at"] = datetime.utcnow().isoformat()
+        plan_entry["updated_at"] = datetime.now(timezone.utc).isoformat()
     metadata["plan"] = plan_entry
     project.project_metadata = metadata
     await db.commit()
@@ -1106,7 +1108,7 @@ async def update_plan(
     metadata["plan"] = {
         "data": payload.plan.model_dump(),
         "status": status_value,
-        "updated_at": datetime.utcnow().isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
     }
     project.project_metadata = metadata
     await db.commit()
@@ -1166,7 +1168,7 @@ async def update_synopsis(
     metadata["synopsis"] = {
         "text": payload.synopsis,
         "status": status_value,
-        "updated_at": datetime.utcnow().isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
     }
     project.project_metadata = metadata
     await db.commit()
@@ -1191,7 +1193,7 @@ async def accept_synopsis(
     if not isinstance(synopsis_entry, dict):
         synopsis_entry = {"text": str(synopsis_entry)}
     synopsis_entry["status"] = "accepted"
-    synopsis_entry["updated_at"] = datetime.utcnow().isoformat()
+    synopsis_entry["updated_at"] = datetime.now(timezone.utc).isoformat()
     metadata["synopsis"] = synopsis_entry
     project.project_metadata = metadata
     await db.commit()

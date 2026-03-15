@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import asyncio
 import json
 import logging
@@ -45,8 +45,9 @@ logger = logging.getLogger(__name__)
 OBJECT_STATUSES = ["possessed", "lost", "destroyed", "hidden", "transferred"]
 CHARACTER_LOCATIONS = ["known", "unknown", "traveling"]
 
-_NEO4J_CACHE = {}
+_NEO4J_CACHE: dict = {}
 _NEO4J_CACHE_TTL = timedelta(minutes=10)
+_NEO4J_CACHE_LOCK = asyncio.Lock()
 _NEO4J_SCHEMA_READY = False
 
 
@@ -149,7 +150,7 @@ class MemoryService:
         continuity["events"] = self._merge_events(
             continuity["events"], facts.get("events", [])
         )
-        continuity["updated_at"] = datetime.utcnow().isoformat()
+        continuity["updated_at"] = datetime.now(timezone.utc).isoformat()
         metadata["continuity"] = continuity
         return metadata
 
@@ -215,7 +216,7 @@ class MemoryService:
         if not self.neo4j_driver:
             return
         
-        timestamp = datetime.utcnow().isoformat()
+        timestamp = datetime.now(timezone.utc).isoformat()
         database = settings.NEO4J_DATABASE or None
         base_chapter = self._resolve_chapter_index(chapter_index)
         
@@ -405,7 +406,7 @@ class MemoryService:
         if not self.neo4j_driver:
             return
         
-        timestamp = datetime.utcnow().isoformat()
+        timestamp = datetime.now(timezone.utc).isoformat()
         database = settings.NEO4J_DATABASE or None
         base_chapter = self._resolve_chapter_index(chapter_index)
         
@@ -559,7 +560,7 @@ class MemoryService:
         """Update Neo4j graph nodes with temporal attributes."""
         if not self.neo4j_driver:
             return
-        timestamp = datetime.utcnow().isoformat()
+        timestamp = datetime.now(timezone.utc).isoformat()
         database = settings.NEO4J_DATABASE or None
         base_chapter = self._resolve_chapter_index(chapter_index)
         with self.neo4j_driver.session(database=database) as session:
@@ -757,7 +758,7 @@ class MemoryService:
         """Detect contradictions in character status history with caching."""
         cache_key = f"contradictions:{project_id}:{character_name}"
         cached = _NEO4J_CACHE.get(cache_key)
-        if cached and datetime.utcnow() - cached["timestamp"] < _NEO4J_CACHE_TTL:
+        if cached and datetime.now(timezone.utc) - cached.get("timestamp", datetime.min.replace(tzinfo=timezone.utc)) < _NEO4J_CACHE_TTL:
             return cached["result"]
 
         if not self.neo4j_driver:
@@ -801,7 +802,7 @@ class MemoryService:
 
         _NEO4J_CACHE[cache_key] = {
             "result": result_list,
-            "timestamp": datetime.utcnow()
+            "timestamp": datetime.now(timezone.utc)
         }
         return result_list
 
@@ -881,20 +882,23 @@ class MemoryService:
         if not self.neo4j_driver:
             return {"nodes": [], "edges": []}
         database = settings.NEO4J_DATABASE or None
+        max_nodes = 500
         if project_id:
             node_query = (
                 "MATCH (n) WHERE n.project_id = $project_id "
-                "RETURN id(n) as id, labels(n) as labels, n as props"
+                "RETURN id(n) as id, labels(n) as labels, n as props "
+                "LIMIT $limit"
             )
             edge_query = (
                 "MATCH (a)-[r]->(b) WHERE a.project_id = $project_id AND b.project_id = $project_id "
-                "RETURN id(a) as source, id(b) as target, type(r) as type, r as props"
+                "RETURN id(a) as source, id(b) as target, type(r) as type, r as props "
+                "LIMIT $limit"
             )
-            params = {"project_id": project_id}
+            params = {"project_id": project_id, "limit": max_nodes}
         else:
-            node_query = "MATCH (n) RETURN id(n) as id, labels(n) as labels, n as props"
-            edge_query = "MATCH (a)-[r]->(b) RETURN id(a) as source, id(b) as target, type(r) as type, r as props"
-            params = {}
+            node_query = "MATCH (n) RETURN id(n) as id, labels(n) as labels, n as props LIMIT $limit"
+            edge_query = "MATCH (a)-[r]->(b) RETURN id(a) as source, id(b) as target, type(r) as type, r as props LIMIT $limit"
+            params = {"limit": max_nodes}
         nodes: List[Dict[str, Any]] = []
         edges: List[Dict[str, Any]] = []
         with self.neo4j_driver.session(database=database) as session:
@@ -1179,7 +1183,7 @@ class MemoryService:
                 {
                     "value": new_value,
                     "chapter_index": incoming.get(chapter_field),
-                    "timestamp": datetime.utcnow().isoformat(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
             )
         if history:

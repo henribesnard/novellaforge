@@ -90,7 +90,8 @@ class RagService:
                 collection_name=self.collection_name,
                 embeddings=self.embeddings,
             )
-        except TypeError:
+        except TypeError as exc:
+            logger.debug("Qdrant embeddings kwarg fallback: %s", exc)
             return _Qdrant(
                 client=self.client,
                 collection_name=self.collection_name,

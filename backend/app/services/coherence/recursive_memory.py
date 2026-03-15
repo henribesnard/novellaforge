@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
@@ -478,6 +478,6 @@ Synopsis global (couvre l'intrigue principale, les personnages clés, les thème
                 metadata["recursive_memory"] = {}
 
             metadata["recursive_memory"]["global_synopsis"] = synopsis
-            metadata["recursive_memory"]["synopsis_updated_at"] = datetime.utcnow().isoformat()
+            metadata["recursive_memory"]["synopsis_updated_at"] = datetime.now(timezone.utc).isoformat()
             project.project_metadata = metadata
             await self.db.commit()

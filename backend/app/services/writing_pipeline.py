@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Dict, Any, List, Optional, TypedDict
 from uuid import UUID, uuid4
-from datetime import datetime
+from datetime import datetime, timezone
 from collections import OrderedDict
 import asyncio
 import hashlib
@@ -2050,7 +2050,7 @@ class WritingPipeline:
                 "severity": self._normalize_contradiction_severity(issue.get("severity")),
                 "description": description,
                 "detected_in_chapter": chapter_value,
-                "detected_at": datetime.utcnow().isoformat(),
+                "detected_at": datetime.now(timezone.utc).isoformat(),
                 "status": "pending",
                 "resolution": None,
                 "affected_chapters": [chapter_value] if chapter_value is not None else [],

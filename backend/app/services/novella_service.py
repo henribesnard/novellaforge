@@ -1,7 +1,7 @@
 """Services for NovellaForge concept and planning workflows."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from uuid import UUID, uuid4
 import json
@@ -195,7 +195,7 @@ class NovellaForgeService:
         synopsis_entry = {
             "status": "draft",
             "text": synopsis,
-            "updated_at": datetime.utcnow().isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
         }
         metadata["synopsis"] = synopsis_entry
         project.project_metadata = metadata
@@ -222,7 +222,7 @@ class NovellaForgeService:
         concept_entry = {
             "status": "draft",
             "data": concept,
-            "updated_at": datetime.utcnow().isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
         }
         if not isinstance(metadata, dict):
             metadata = {}
@@ -247,7 +247,7 @@ class NovellaForgeService:
         concept_entry = {
             "status": "accepted",
             "data": concept,
-            "updated_at": datetime.utcnow().isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
         }
         metadata["concept"] = concept_entry
         project.project_metadata = metadata
@@ -328,7 +328,7 @@ class NovellaForgeService:
         plan_entry = {
             "data": plan,
             "status": "draft",
-            "updated_at": datetime.utcnow().isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
         }
         metadata["plan"] = plan_entry
         project.project_metadata = metadata

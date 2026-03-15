@@ -8,6 +8,15 @@ from app.models.document import DocumentType
 from app.services.rag_service import RagService
 
 
+def _make_rag_service():
+    """Create a RagService bypassing __init__, with enabled=True for testing."""
+    service = RagService.__new__(RagService)
+    service.enabled = True
+    service._logged_disabled = False
+    service.disabled_reason = None
+    return service
+
+
 def test_update_document_reindexes_chunks(monkeypatch):
     calls = {}
 
@@ -29,9 +38,9 @@ def test_update_document_reindexes_chunks(monkeypatch):
         calls["deleted_project_id"] = project_id
         calls["deleted_document_id"] = document_id
 
-    monkeypatch.setattr(rag_service, "Qdrant", DummyVectorStore)
+    monkeypatch.setattr(rag_service, "_Qdrant", DummyVectorStore)
 
-    service = RagService.__new__(RagService)
+    service = _make_rag_service()
     service.client = object()
     service.collection_name = "test"
     service.embeddings = object()
@@ -68,9 +77,9 @@ def test_update_document_handles_empty_content(monkeypatch):
         def __init__(self, client, collection_name, embeddings):
             raise AssertionError("Vector store should not be created for empty content")
 
-    monkeypatch.setattr(rag_service, "Qdrant", DummyVectorStore)
+    monkeypatch.setattr(rag_service, "_Qdrant", DummyVectorStore)
 
-    service = RagService.__new__(RagService)
+    service = _make_rag_service()
     service.client = object()
     service.collection_name = "test"
     service.embeddings = object()
@@ -107,7 +116,7 @@ def test_count_project_vectors_uses_filter(monkeypatch):
         def collection_exists(self, collection_name):
             return True
 
-    service = RagService.__new__(RagService)
+    service = _make_rag_service()
     service.client = DummyClient()
     service.collection_name = "test"
     service._ensure_collection = lambda: None
@@ -130,7 +139,7 @@ def test_ensure_collection_creates_when_missing():
             calls["collection_name"] = collection_name
             calls["vectors_config"] = vectors_config
 
-    service = RagService.__new__(RagService)
+    service = _make_rag_service()
     service.client = DummyClient()
     service.collection_name = "test"
 
@@ -148,7 +157,7 @@ def test_delete_project_vectors_builds_filter():
             calls["collection_name"] = collection_name
             calls["points_selector"] = points_selector
 
-    service = RagService.__new__(RagService)
+    service = _make_rag_service()
     service.client = DummyClient()
     service.collection_name = "test"
 
@@ -168,7 +177,7 @@ def test_delete_document_vectors_builds_filter():
             calls["collection_name"] = collection_name
             calls["points_selector"] = points_selector
 
-    service = RagService.__new__(RagService)
+    service = _make_rag_service()
     service.client = DummyClient()
     service.collection_name = "test"
 
@@ -198,9 +207,9 @@ def test_index_documents_adds_texts(monkeypatch):
             calls["texts"] = texts
             calls["metadatas"] = metadatas
 
-    monkeypatch.setattr(rag_service, "Qdrant", DummyVectorStore)
+    monkeypatch.setattr(rag_service, "_Qdrant", DummyVectorStore)
 
-    service = RagService.__new__(RagService)
+    service = _make_rag_service()
     service.client = object()
     service.collection_name = "test"
     service.embeddings = object()
@@ -253,9 +262,9 @@ def test_retrieve_returns_page_content(monkeypatch):
                 SimpleNamespace(page_content="two"),
             ]
 
-    monkeypatch.setattr(rag_service, "Qdrant", DummyVectorStore)
+    monkeypatch.setattr(rag_service, "_Qdrant", DummyVectorStore)
 
-    service = RagService.__new__(RagService)
+    service = _make_rag_service()
     service.client = object()
     service.collection_name = "test"
     service.embeddings = object()
@@ -277,7 +286,7 @@ async def test_aupdate_document_calls_sync(monkeypatch):
         called["document_id"] = document.id
         return 3
 
-    service = RagService.__new__(RagService)
+    service = _make_rag_service()
     service.update_document = fake_update
 
     project_id = uuid4()
@@ -298,7 +307,7 @@ async def test_acount_project_vectors_calls_sync():
         called["project_id"] = project_id
         return 9
 
-    service = RagService.__new__(RagService)
+    service = _make_rag_service()
     service.count_project_vectors = fake_count
 
     project_id = uuid4()

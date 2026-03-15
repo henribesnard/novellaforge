@@ -83,7 +83,7 @@ class ProjectService:
         """
         title = project_data.title
         if not title:
-            genre_key = project_data.genre.value
+            genre_key = project_data.genre.value if hasattr(project_data.genre, 'value') else project_data.genre
             genre_label = {
                 "werewolf": "loup-garou",
                 "billionaire": "milliardaire",

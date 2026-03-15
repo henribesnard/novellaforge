@@ -125,6 +125,8 @@ async def test_generate_plan_normalizes_fallback(monkeypatch):
         description="",
         genre="thriller",
         target_word_count=6000,
+        target_chapter_length=None,
+        target_chapter_count=None,
     )
     db = DummyDB()
     service = NovellaForgeService(db)
@@ -172,6 +174,8 @@ async def test_generate_plan_includes_plot_constraints(monkeypatch):
         description="",
         genre="thriller",
         target_word_count=6000,
+        target_chapter_length=None,
+        target_chapter_count=None,
     )
     db = DummyDB()
     service = NovellaForgeService(db)

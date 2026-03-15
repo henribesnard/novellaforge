@@ -243,7 +243,7 @@ def test_init_clients_with_neo4j_and_chroma(monkeypatch):
 
     class DummyChroma:
         class HttpClient:
-            def __init__(self, host=None, port=None):
+            def __init__(self, host=None, port=None, settings=None):
                 self.host = host
                 self.port = port
 

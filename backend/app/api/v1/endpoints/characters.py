@@ -56,8 +56,8 @@ def _infer_count_from_precision(precision: Optional[str]) -> Optional[int]:
 
     text = precision.lower()
     patterns = [
-        r"(?:^|\\b)(\\d{1,2})\\s*(?:personnages?|persos?|characters?)",
-        r"(?:personnages?|persos?|characters?)\\s*[:=]?\\s*(\\d{1,2})",
+        r"(?:^|\b)(\d{1,2})\s*(?:personnages?|persos?|characters?)",
+        r"(?:personnages?|persos?|characters?)\s*[:=]?\s*(\d{1,2})",
     ]
     for pattern in patterns:
         match = re.search(pattern, text)

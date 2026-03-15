@@ -113,7 +113,8 @@ async def test_download_project_creates_zip_and_handles_duplicates(monkeypatch):
 
     class DummyDB:
         async def execute(self, *args, **kwargs):
-            return DummyResult(scalars=[doc_one, doc_two, doc_other])
+            # SQL now filters by document_type=CHAPTER, so only chapters are returned
+            return DummyResult(scalars=[doc_one, doc_two])
 
     current_user = SimpleNamespace(id=uuid4())
     monkeypatch.setattr(projects_module, "ProjectService", DummyProjectService)

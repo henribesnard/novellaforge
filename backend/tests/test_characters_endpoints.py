@@ -23,9 +23,12 @@ def test_extract_json_payload_handles_list_snippet():
 
 
 def test_infer_count_from_precision():
-    assert characters_module._infer_count_from_precision("2 characters") is None
-    assert characters_module._infer_count_from_precision("characters: 3") is None
+    assert characters_module._infer_count_from_precision("2 characters") == 2
+    assert characters_module._infer_count_from_precision("characters: 3") == 3
+    assert characters_module._infer_count_from_precision("5 persos") == 5
     assert characters_module._infer_count_from_precision("unknown") is None
+    assert characters_module._infer_count_from_precision("") is None
+    assert characters_module._infer_count_from_precision(None) is None
 
 
 @pytest.mark.asyncio
