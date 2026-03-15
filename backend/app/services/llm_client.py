@@ -161,28 +161,53 @@ class DeepSeekClient:
                 "DeepSeek connection error. Please retry in a moment."
             ) from exc
 
-    async def chat_stream_full(
+    def chat_stream_full(
         self,
         messages: List[Dict[str, str]],
         temperature: float = 0.7,
         max_tokens: int = 2000,
         model: Optional[str] = None,
-    ) -> tuple[str, AsyncIterator[str]]:
+    ) -> "StreamCollector":
         """
         Stream chat and collect full response.
-        Returns (full_content, stream_iterator).
-        Use the iterator for real-time updates, full_content after iteration completes.
+
+        Returns a StreamCollector: iterate with ``async for chunk in collector``,
+        then access ``collector.full_content`` after iteration completes.
         """
-        collected_content: List[str] = []
+        return StreamCollector(self, messages, temperature, max_tokens, model)
 
-        async def collecting_stream() -> AsyncIterator[str]:
-            async for chunk in self.chat_stream(
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                model=model,
-            ):
-                collected_content.append(chunk)
-                yield chunk
 
-        return "".join(collected_content), collecting_stream()
+class StreamCollector:
+    """Async iterator that collects streamed chunks and exposes full_content."""
+
+    def __init__(
+        self,
+        client: DeepSeekClient,
+        messages: List[Dict[str, str]],
+        temperature: float,
+        max_tokens: int,
+        model: Optional[str],
+    ) -> None:
+        self._client = client
+        self._messages = messages
+        self._temperature = temperature
+        self._max_tokens = max_tokens
+        self._model = model
+        self._collected: List[str] = []
+
+    @property
+    def full_content(self) -> str:
+        return "".join(self._collected)
+
+    def __aiter__(self):
+        return self._iterate()
+
+    async def _iterate(self) -> AsyncIterator[str]:
+        async for chunk in self._client.chat_stream(
+            messages=self._messages,
+            temperature=self._temperature,
+            max_tokens=self._max_tokens,
+            model=self._model,
+        ):
+            self._collected.append(chunk)
+            yield chunk

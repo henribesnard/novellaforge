@@ -1,5 +1,6 @@
 """Database session configuration"""
 from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 
@@ -33,7 +34,17 @@ AsyncSessionLocal = async_sessionmaker(
 
 # Dependency to get DB session
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    """Get database session"""
+    """Get database session (FastAPI dependency)."""
+    async with AsyncSessionLocal() as session:
+        try:
+            yield session
+        finally:
+            await session.close()
+
+
+@asynccontextmanager
+async def get_standalone_session() -> AsyncGenerator[AsyncSession, None]:
+    """Get a standalone async session (for Celery tasks and scripts)."""
     async with AsyncSessionLocal() as session:
         try:
             yield session

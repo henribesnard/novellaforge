@@ -39,10 +39,9 @@ class AgentFactory:
         """Retourne la liste des agents disponibles avec leurs descriptions"""
         agents_info: Dict[str, Dict[str, str]] = {}
         for agent_type, agent_class in cls._agents.items():
-            instance = agent_class()
             agents_info[agent_type] = {
-                "name": instance.name,
-                "description": instance.description,
+                "name": agent_class.name.fget(None) if hasattr(agent_class.name, 'fget') else agent_type,
+                "description": agent_class.description.fget(None) if hasattr(agent_class.description, 'fget') else "",
             }
         return agents_info
 

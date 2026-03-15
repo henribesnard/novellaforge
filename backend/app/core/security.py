@@ -134,6 +134,12 @@ async def get_current_user(
         headers={"WWW-Authenticate": "Bearer"},
     )
 
+    from app.core.token_blacklist import is_token_blacklisted
+
+    # Check blacklist
+    if await is_token_blacklisted(token):
+        raise credentials_exception
+
     # Decode token
     token_data = decode_token(token)
     if token_data is None or token_data.sub is None:

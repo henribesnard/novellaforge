@@ -1,5 +1,5 @@
 """Project context builder for writing and agents."""
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from uuid import UUID
 
 from sqlalchemy import select
@@ -147,7 +147,7 @@ class SmartContextTruncator:
         memory: Dict[str, Any],
         max_chars: int = 4000,
         current_chapter: int = 0,
-        mentioned_characters: List[str] = None
+        mentioned_characters: Optional[List[str]] = None
     ) -> str:
         """
         Prioritize:

@@ -20,12 +20,7 @@ logger = logging.getLogger(__name__)
 
 def _run_async(coro):
     """Helper to run async code in sync Celery tasks."""
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-    return loop.run_until_complete(coro)
+    return asyncio.run(coro)
 
 
 @celery_app.task(
@@ -239,11 +234,11 @@ def generate_chapter_async_task(
     real-time feedback.
     """
     try:
-        from app.db.session import get_sync_session
+        from app.db.session import get_standalone_session
         from app.services.writing_pipeline import WritingPipeline
 
         async def _generate():
-            async with get_sync_session() as db:
+            async with get_standalone_session() as db:
                 pipeline = WritingPipeline(db)
                 state = {
                     "project_id": UUID(project_id),
@@ -296,13 +291,13 @@ def pregenerate_plans_async_task(
     requests chapter generation.
     """
     try:
-        from app.db.session import get_sync_session
+        from app.db.session import get_standalone_session
         from app.services.writing_pipeline import WritingPipeline
         from app.models.project import Project
         from sqlalchemy import select
 
         async def _pregenerate():
-            async with get_sync_session() as db:
+            async with get_standalone_session() as db:
                 # Get project
                 result = await db.execute(
                     select(Project).where(Project.id == UUID(project_id))

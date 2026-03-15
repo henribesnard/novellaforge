@@ -171,8 +171,6 @@ async def global_exception_handler(request: Request, exc: Exception):
         status_code=500,
         content={
             "detail": "Une erreur interne est survenue",
-            "error": str(exc) if settings.DEBUG else None,
-            "type": type(exc).__name__ if settings.DEBUG else None
         }
     )
 

@@ -1,7 +1,7 @@
 """Documents endpoints"""
 import math
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import uuid4
 import logging
 from httpx import ReadTimeout
@@ -140,7 +140,7 @@ def _serialize_comment(entry: dict) -> Optional[dict]:
     try:
         created_at_dt = datetime.fromisoformat(str(created_at))
     except (TypeError, ValueError):
-        created_at_dt = datetime.utcnow()
+        created_at_dt = datetime.now(timezone.utc)
     applied_ids = entry.get("applied_version_ids")
     applied_list = applied_ids if isinstance(applied_ids, list) else None
     return {
@@ -174,7 +174,7 @@ async def _ensure_versions_for_document(
         {
             "id": str(uuid4()),
             "version": base_version,
-            "created_at": datetime.utcnow().isoformat(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
             "content": content,
             "word_count": _count_words(content),
             "min_word_count": metadata.get("min_word_count"),
@@ -229,9 +229,9 @@ def _serialize_version(entry: dict, current_version: Optional[str], include_cont
         return None
     created_at = entry.get("created_at")
     try:
-        created_at_dt = datetime.fromisoformat(created_at) if created_at else datetime.utcnow()
+        created_at_dt = datetime.fromisoformat(created_at) if created_at else datetime.now(timezone.utc)
     except ValueError:
-        created_at_dt = datetime.utcnow()
+        created_at_dt = datetime.now(timezone.utc)
 
     word_count = entry.get("word_count")
     if not isinstance(word_count, int):
@@ -314,24 +314,33 @@ async def _get_next_element_index(
     project_id: UUID,
     element_type: str,
 ) -> int:
+    from sqlalchemy import cast, Integer, case, literal
+    from sqlalchemy.dialects.postgresql import JSONB as _JSONB
+
+    # Filter documents by element_type stored in JSONB metadata, or chapters by document_type
+    element_type_filter = Document.document_metadata["element_type"].astext == element_type
+    if element_type == "chapitre":
+        element_type_filter = element_type_filter | (
+            (Document.document_type == DocumentType.CHAPTER)
+            & (~Document.document_metadata.has_key("element_type"))
+        )
+
+    base_filter = (Document.project_id == project_id) & element_type_filter
+
+    # Count matching documents and get max element_index in a single query
     result = await db.execute(
-        select(Document).where(Document.project_id == project_id)
+        select(
+            func.count().label("seen"),
+            func.coalesce(
+                func.max(
+                    cast(Document.document_metadata["element_index"].astext, Integer)
+                ),
+                0,
+            ).label("max_index"),
+        ).where(base_filter)
     )
-    documents = result.scalars().all()
-    current_max = 0
-    seen = 0
-    for doc in documents:
-        doc_type = _infer_element_type(doc)
-        if doc_type != element_type:
-            continue
-        seen += 1
-        metadata = doc.document_metadata or {}
-        try:
-            index = int(metadata.get("element_index", 0))
-        except (TypeError, ValueError):
-            index = 0
-        current_max = max(current_max, index)
-    return max(current_max, seen) + 1
+    row = result.one()
+    return max(row.max_index, row.seen) + 1
 
 
 def _validate_parent_child(parent: Document, child_type: str) -> None:
@@ -819,7 +828,7 @@ async def generate_element(
             {
                 "id": str(uuid4()),
                 "version": base_version,
-                "created_at": datetime.utcnow().isoformat(),
+                "created_at": datetime.now(timezone.utc).isoformat(),
                 "content": existing_content,
                 "word_count": _count_words(existing_content),
                 "min_word_count": metadata.get("min_word_count"),
@@ -849,7 +858,7 @@ async def generate_element(
     version_entry = {
         "id": version_id,
         "version": next_version,
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
         "content": content.strip(),
         "word_count": _count_words(content),
         "min_word_count": min_words,
@@ -931,7 +940,7 @@ async def create_document_version(
             {
                 "id": str(uuid4()),
                 "version": base_version,
-                "created_at": datetime.utcnow().isoformat(),
+                "created_at": datetime.now(timezone.utc).isoformat(),
                 "content": existing_content,
                 "word_count": _count_words(existing_content),
                 "min_word_count": metadata.get("min_word_count"),
@@ -969,7 +978,7 @@ async def create_document_version(
     version_entry = {
         "id": str(uuid4()),
         "version": next_version,
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
         "content": content,
         "word_count": _count_words(content),
         "min_word_count": metadata.get("min_word_count"),
@@ -1080,7 +1089,7 @@ async def create_document_comment(
     comment_entry: Dict[str, Any] = {
         "id": str(uuid4()),
         "content": content,
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
         "user_id": str(current_user.id),
         "version_id": str(payload.version_id) if payload.version_id else None,
         "applied_version_ids": [],

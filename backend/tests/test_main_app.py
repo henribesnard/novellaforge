@@ -55,9 +55,9 @@ async def test_global_exception_handler_returns_json():
     payload = json.loads(response.body.decode("utf-8"))
     assert response.status_code == 500
     assert payload["detail"] == "Une erreur interne est survenue"
-    if settings.DEBUG:
-        assert payload["error"] == "boom"
-        assert payload["type"] == "Exception"
+    # Internal error details must NOT be leaked, even in debug mode
+    assert "error" not in payload
+    assert "type" not in payload
 
 
 @pytest.mark.asyncio

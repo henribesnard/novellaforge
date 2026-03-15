@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 from typing import Any, Dict, Optional
 from uuid import UUID
@@ -120,7 +120,7 @@ async def _reconcile_project_memory(project_id: str) -> Dict[str, Any]:
         updated = False
         if differences["significant_changes"]:
             metadata["continuity"] = new_continuity
-            metadata["last_reconciliation"] = datetime.utcnow().isoformat()
+            metadata["last_reconciliation"] = datetime.now(timezone.utc).isoformat()
             project.project_metadata = metadata
             await db.commit()
             updated = True
@@ -163,7 +163,7 @@ async def _cleanup_old_drafts(project_id: str, days_threshold: int) -> Dict[str,
     if not project_uuid:
         return {"error": "Invalid project id"}
 
-    cutoff = datetime.utcnow() - timedelta(days=days_threshold)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days_threshold)
     async with AsyncSessionLocal() as db:
         result = await db.execute(
             select(Document).where(

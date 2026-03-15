@@ -11,7 +11,12 @@ from app.models.user import User
 from app.models.project import Project
 from app.models.document import Document, DocumentType
 from app.core.security import get_current_active_user
-from app.services.file_processor import FileProcessor
+from app.services.file_processor import (
+    FileProcessor,
+    FileProcessingError,
+    FileTooLargeError,
+    UnsupportedFileTypeError,
+)
 from app.services.document_service import DocumentService
 from app.schemas.document import DocumentCreate
 from app.schemas.upload import UploadResponse
@@ -103,9 +108,24 @@ async def upload_file(
 
     except HTTPException:
         raise
-    except Exception as e:
+    except UnsupportedFileTypeError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    except FileTooLargeError as e:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=str(e),
+        )
+    except FileProcessingError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e),
+        )
+    except Exception:
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error processing file: {str(e)}"
+            detail="An error occurred while processing the file",
         )

@@ -9,7 +9,8 @@ from app.db.session import get_db
 from app.schemas.user import UserCreate, UserResponse, UserLogin
 from app.schemas.token import Token, TokenWithUser
 from app.services.auth_service import AuthService
-from app.core.security import create_access_token, get_current_active_user
+from app.core.security import create_access_token, get_current_active_user, oauth2_scheme
+from app.core.token_blacklist import blacklist_token
 from app.models.user import User
 
 router = APIRouter()
@@ -127,11 +128,11 @@ async def get_current_user_info(
 
 
 @router.post("/logout")
-async def logout():
+async def logout(token: str = Depends(oauth2_scheme)):
     """
     Logout user.
 
-    Note: With JWT tokens, logout is handled client-side by removing the token.
-    This endpoint exists for API completeness.
+    Blacklists the current token so it cannot be reused.
     """
+    await blacklist_token(token)
     return {"message": "Successfully logged out"}

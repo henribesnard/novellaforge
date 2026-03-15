@@ -12,15 +12,10 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+from app.core.datetime_utils import utc_now
 
 if TYPE_CHECKING:
     from app.models.project import Project
-
-
-def utc_now():
-    """Return current UTC time - compatible with SQLAlchemy default"""
-    # Return timezone-naive UTC datetime for PostgreSQL TIMESTAMP WITHOUT TIME ZONE
-    return datetime.utcnow()
 
 
 class DocumentType(str, enum.Enum):
