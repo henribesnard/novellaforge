@@ -28,18 +28,18 @@ export default function Home() {
             </div>
           </div>
           {isAuthed !== null && (
-            <div className="hidden items-center gap-3 sm:flex">
+            <div className="flex items-center gap-3">
               {showAuthed ? (
                 <>
                   <Link
                     href="/dashboard"
-                    className="rounded-full border border-stone-300 px-4 py-2 text-sm text-ink/80 transition hover:bg-white/70"
+                    className="hidden sm:inline-flex rounded-full border border-stone-300 px-4 py-2.5 text-sm text-ink/80 transition-all duration-200 hover:bg-white/70 active:scale-95"
                   >
                     Tableau de bord
                   </Link>
                   <Link
                     href="/dashboard?create=1"
-                    className="rounded-full bg-brand-700 px-4 py-2 text-sm text-white shadow-soft transition hover:bg-brand-800"
+                    className="rounded-full bg-brand-700 px-4 py-2.5 text-sm text-white shadow-soft transition-all duration-200 hover:bg-brand-800 active:scale-95"
                   >
                     Creer un projet
                   </Link>
@@ -48,13 +48,13 @@ export default function Home() {
                 <>
                   <Link
                     href="/auth/login"
-                    className="rounded-full border border-stone-300 px-4 py-2 text-sm text-ink/80 transition hover:bg-white/70"
+                    className="hidden sm:inline-flex rounded-full border border-stone-300 px-4 py-2.5 text-sm text-ink/80 transition-all duration-200 hover:bg-white/70 active:scale-95"
                   >
                     Connexion
                   </Link>
                   <Link
                     href="/auth/register"
-                    className="rounded-full bg-brand-700 px-4 py-2 text-sm text-white shadow-soft transition hover:bg-brand-800"
+                    className="rounded-full bg-brand-700 px-4 py-2.5 text-sm text-white shadow-soft transition-all duration-200 hover:bg-brand-800 active:scale-95"
                   >
                     Commencer
                   </Link>
@@ -69,7 +69,7 @@ export default function Home() {
             <span className="inline-flex w-fit items-center gap-2 rounded-full bg-white/70 px-3 py-1 text-xs font-semibold text-brand-700 ring-1 ring-brand-200">
               Pipeline editorial complet
             </span>
-            <h1 className="font-serif text-4xl leading-tight md:text-5xl lg:text-6xl animate-rise">
+            <h1 className="font-serif text-4xl leading-tight tracking-tight text-balance md:text-5xl lg:text-6xl animate-rise">
               Ecrire un roman entier, chapitre par chapitre, sans perdre le contexte.
             </h1>
             <p className="text-lg text-ink/70 animate-rise" style={{ animationDelay: '120ms' }}>
@@ -199,10 +199,11 @@ export default function Home() {
               title: 'Qualite livrable',
               body: 'Structuration, contraintes et controle de longueur integres.',
             },
-          ].map((item) => (
+          ].map((item, i) => (
             <div
               key={item.title}
-              className="rounded-2xl border border-stone-200 bg-white/80 p-6 shadow-soft"
+              className="rounded-2xl border border-stone-200 bg-white/80 p-6 shadow-soft transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lift animate-slideUp"
+              style={{ animationDelay: `${400 + i * 100}ms` }}
             >
               <h3 className="font-serif text-xl text-ink">{item.title}</h3>
               <p className="mt-2 text-sm text-ink/70">{item.body}</p>

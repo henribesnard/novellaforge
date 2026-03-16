@@ -16,6 +16,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
 import { formatDate, formatGenreLabel, formatWordCount } from '@/lib/utils'
 import type {
@@ -135,7 +136,27 @@ export default function ProjectDetailPage() {
 
   if (loading) {
     return (
-      <div className="p-10 text-center text-sm text-ink/60">Chargement...</div>
+      <div className="space-y-8 p-6 animate-fadeIn">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex flex-col gap-2">
+            <Skeleton width="280px" height="28px" />
+            <Skeleton width="200px" />
+          </div>
+          <Skeleton variant="rect" width="180px" height="40px" className="rounded-full" />
+        </div>
+        <div className="rounded-2xl bg-white/80 border border-stone-200/80 p-6 space-y-4">
+          <Skeleton width="160px" height="24px" />
+          <Skeleton width="300px" />
+          <div className="space-y-3 pt-2">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="space-y-1 animate-slideUp" style={{ animationDelay: `${i * 80}ms` }}>
+                <Skeleton width="80px" />
+                <Skeleton variant="rect" height="44px" className="rounded-xl" />
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
     )
   }
 

@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/dialog'
 import { DashboardStats } from '@/features/dashboard'
 import { CreateProjectWizard, ProjectList } from '@/features/projects'
+import { Skeleton } from '@/components/ui/skeleton'
 import type { Project } from '@/types'
 
 function DashboardContent() {
@@ -112,10 +113,36 @@ function DashboardContent() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="text-center">
-          <div className="mx-auto h-12 w-12 animate-spin rounded-full border-b-2 border-brand-700"></div>
-          <p className="mt-4 text-ink/60">Chargement...</p>
+      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8 animate-fadeIn">
+        <div className="rounded-2xl bg-white/90 border border-stone-100 shadow-soft px-2 py-3">
+          <div className="flex items-center gap-4">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="flex flex-1 items-center gap-3 px-4">
+                <Skeleton variant="rect" width="36px" height="36px" />
+                <div className="space-y-2 flex-1">
+                  <Skeleton width="60%" />
+                  <Skeleton width="40%" height="20px" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="mt-10 space-y-6">
+          <div className="flex items-center justify-between">
+            <Skeleton width="140px" height="28px" />
+            <Skeleton variant="rect" width="140px" height="40px" className="rounded-full" />
+          </div>
+          {[0, 1, 2].map((i) => (
+            <div
+              key={i}
+              className="rounded-2xl bg-white/90 border border-stone-100 shadow-soft p-6 space-y-3 animate-slideUp"
+              style={{ animationDelay: `${i * 100}ms` }}
+            >
+              <Skeleton width="60%" height="24px" />
+              <Skeleton width="40%" />
+              <Skeleton width="80%" />
+            </div>
+          ))}
         </div>
       </div>
     )
@@ -209,10 +236,19 @@ export default function DashboardPage() {
   return (
     <Suspense
       fallback={
-        <div className="flex min-h-screen items-center justify-center">
-          <div className="text-center">
-            <div className="mx-auto h-12 w-12 animate-spin rounded-full border-b-2 border-brand-700"></div>
-            <p className="mt-4 text-ink/60">Chargement...</p>
+        <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8 animate-fadeIn">
+          <div className="rounded-2xl bg-white/90 border border-stone-100 shadow-soft px-2 py-3">
+            <div className="flex items-center gap-4">
+              {[0, 1, 2, 3].map((i) => (
+                <div key={i} className="flex flex-1 items-center gap-3 px-4">
+                  <div className="h-9 w-9 rounded-xl bg-stone-200/60 animate-shimmer" />
+                  <div className="space-y-2 flex-1">
+                    <div className="h-3 w-3/5 rounded bg-stone-200/60 animate-shimmer" />
+                    <div className="h-5 w-2/5 rounded bg-stone-200/60 animate-shimmer" />
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       }

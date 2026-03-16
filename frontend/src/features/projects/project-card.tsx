@@ -635,7 +635,7 @@ export function ProjectCard({ project, onReload, onOpenProject, onDeleteRequest 
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-4 text-sm text-ink/60">
+        <div className="flex flex-col gap-4 text-sm text-ink/60 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
           <div className="flex flex-wrap items-center gap-4">
             {project.genre && (
               <span className="flex items-center gap-2">
@@ -647,9 +647,9 @@ export function ProjectCard({ project, onReload, onOpenProject, onDeleteRequest 
               <span className="h-2 w-2 rounded-full bg-brand-500" />
               {formatWordCount(project.current_word_count)} mots
             </span>
-          </div>
-          <div className="flex items-center gap-3">
             <span>{formatDate(project.updated_at)}</span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
             <Button
               variant="outline"
               size="sm"

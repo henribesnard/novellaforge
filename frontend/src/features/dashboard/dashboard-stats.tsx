@@ -57,9 +57,9 @@ export function DashboardStats({ projects }: DashboardStatsProps) {
 
   return (
     <Card variant="elevated" className="px-2 py-3">
-      <div className="flex items-center divide-x divide-stone-200">
+      <div className="grid grid-cols-2 gap-3 sm:flex sm:items-center sm:divide-x sm:divide-stone-200 sm:gap-0">
         {stats.map((stat) => (
-          <div key={stat.label} className="flex flex-1 items-center gap-3 px-4">
+          <div key={stat.label} className="flex items-center gap-3 px-4 sm:flex-1">
             <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${stat.color}`}>
               {stat.icon}
             </div>

@@ -11,14 +11,19 @@ interface ProjectListProps {
 export function ProjectList({ projects, onReload, onOpenProject, onDeleteRequest }: ProjectListProps) {
   return (
     <div className="space-y-6">
-      {projects.map((project) => (
-        <ProjectCard
+      {projects.map((project, i) => (
+        <div
           key={project.id}
-          project={project}
-          onReload={onReload}
-          onOpenProject={onOpenProject}
-          onDeleteRequest={onDeleteRequest}
-        />
+          className="animate-slideUp"
+          style={{ animationDelay: `${i * 80}ms` }}
+        >
+          <ProjectCard
+            project={project}
+            onReload={onReload}
+            onOpenProject={onOpenProject}
+            onDeleteRequest={onDeleteRequest}
+          />
+        </div>
       ))}
     </div>
   )

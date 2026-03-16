@@ -42,7 +42,7 @@ const Dialog: React.FC<DialogProps> = ({ open, onClose, children, size = 'md' })
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto px-4 py-8">
       {/* Backdrop */}
       <div
-        className="fixed inset-0 bg-ink/50 backdrop-blur-sm"
+        className="fixed inset-0 bg-ink/50 backdrop-blur-sm animate-fadeIn"
         onClick={onClose}
         aria-hidden="true"
       />
@@ -50,7 +50,7 @@ const Dialog: React.FC<DialogProps> = ({ open, onClose, children, size = 'md' })
       {/* Dialog */}
       <div
         className={cn(
-          'relative z-10 bg-white/90 rounded-2xl border border-stone-200 shadow-lift w-full',
+          'relative z-10 bg-white/90 rounded-2xl border border-stone-200 shadow-lift w-full animate-scaleIn',
           sizes[size]
         )}
       >
